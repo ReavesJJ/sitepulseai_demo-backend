@@ -15,8 +15,12 @@ from bs4 import BeautifulSoup
 from fastapi import APIRouter
 from ssl_automation import router as ssl_router
 from ssl_automation import run_certbot_renew
-from ssl_state import load_ssl_state
+from ssl_state import set_renewal_mode
 from ssl_utils import check_ssl_validity
+# main.py or ssl_utils.py
+from ssl_state import load_ssl_state
+
+
 
 app = FastAPI()
 

@@ -1,24 +1,68 @@
-import json
+# ssl_state.py
+# Centralized SSL state handling for SitePulseAI
+
 from datetime import datetime
 
-STATE_FILE = "ssl_state.json"
 
+# ssl_state.py
 def load_ssl_state():
-    try:
-        with open(STATE_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {}
+    ...
 
-def save_ssl_state(state):
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f, indent=2)
 
-def update_ssl_state(domain, renewed=False, mode="assisted"):
-    state = load_ssl_state()
-    state[domain] = {
-        "last_renewed_by": "SitePulseAI" if renewed else None,
+# In-memory store (can later be swapped for Redis / DB)
+_ssl_state_store = {}
+
+
+def get_ssl_state(domain: str) -> dict:
+    """
+    Retrieve SSL state information for a domain.
+    Returns defaults if domain not yet tracked.
+    """
+    return _ssl_state_store.get(domain, {
+        "domain": domain,
+        "ssl_valid": None,
+        "issuer": None,
+        "expires_at": None,
+        "days_remaining": None,
+        "renewal_mode": "auto",
+        "last_checked": None,
+    })
+
+
+def set_ssl_state(
+    domain: str,
+    ssl_valid: bool,
+    issuer: str = None,
+    expires_at: str = None,
+    days_remaining: int = None
+) -> dict:
+    """
+    Update SSL scan results for a domain.
+    """
+    state = get_ssl_state(domain)
+
+    state.update({
+        "ssl_valid": ssl_valid,
+        "issuer": issuer,
+        "expires_at": expires_at,
+        "days_remaining": days_remaining,
         "last_checked": datetime.utcnow().isoformat(),
-        "renewal_mode": mode,
-    }
-    save_ssl_state(state)
+    })
+
+    _ssl_state_store[domain] = state
+    return state
+
+
+def set_renewal_mode(domain: str, mode: str) -> dict:
+    """
+    Set SSL renewal mode.
+    Allowed values: auto, assisted, manual
+    """
+    if mode not in {"auto", "assisted", "manual"}:
+        raise ValueError("Invalid renewal mode")
+
+    state = get_ssl_state(domain)
+    state["renewal_mode"] = mode
+    _ssl_state_store[domain] = state
+
+    return state
