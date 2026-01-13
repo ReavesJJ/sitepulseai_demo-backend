@@ -1,98 +1,89 @@
-import json
+
 from datetime import datetime
-from ssl_utils import update_ssl_state
-from fastapi import APIRouter
-import json
-import os
-import subprocess
-# NO imports from ssl_automation
-from ssl_state import load_ssl_state
+
 # ssl_utils.py
 import ssl
 import socket
 from datetime import datetime
 from urllib.parse import urlparse
+from ssl_state import set_ssl_state
 
-def check_ssl_validity(url: str) -> str:
+from ssl_state import (
+    get_ssl_state,
+    set_ssl_state,
+    set_renewal_mode,
+)
+
+
+
+def check_ssl_validity(domain: str) -> dict:
+    """
+    Checks SSL certificate validity for a domain.
+    Returns structured SSL status data.
+    """
+    context = ssl.create_default_context()
+
     try:
-        hostname = urlparse(url).hostname
-        ctx = ssl.create_default_context()
-        with ctx.wrap_socket(socket.socket(), server_hostname=hostname) as s:
-            s.settimeout(5)
-            s.connect((hostname, 443))
-            cert = s.getpeercert()
-            expires = datetime.strptime(
-                cert["notAfter"], "%b %d %H:%M:%S %Y %Z"
-            )
-            days_left = (expires - datetime.utcnow()).days
-            return f"Valid, expires in {days_left} days"
-    except Exception:
-        return "Not Available"
+        with socket.create_connection((domain, 443), timeout=10) as sock:
+            with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                cert = ssock.getpeercert()
 
+        not_after = cert.get("notAfter")
+        expiry_date = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z")
+        days_remaining = (expiry_date - datetime.utcnow()).days
 
-def run_certbot_renew():
-    try:
-        process = subprocess.run(
-            ["certbot", "renew", "--quiet"],
-            capture_output=True,
-            text=True
-        )
-
-        if process.returncode == 0:
-            return {
-                "success": True,
-                "output": process.stdout
-            }
-
-        return {
-            "success": False,
-            "error": process.stderr
+        status = {
+            "domain": domain,
+            "valid": True,
+            "expires_on": expiry_date.isoformat(),
+            "days_remaining": days_remaining,
         }
 
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
+        status = {
+            "domain": domain,
+            "valid": False,
+            "error": str(e),
         }
 
-
-router = APIRouter()
-
-
-def renew_ssl():
-    result = run_certbot_renew()  # your certbot logic
-
-    if result.success:
-        update_ssl_state("success")
-        return {"status": "renewed by SitePulseAI"}
-
-    return {"status": "failed"}
+    return status
 
 
-@router.get("/ssl/state")
-def get_ssl_state():
-    if not os.path.exists("ssl_state.json"):
-        return {"status": "unknown"}
+def update_ssl_state(domain: str) -> dict:
+    """
+    Checks SSL status and persists it to ssl_state.
+    """
+    ssl_status = check_ssl_validity(domain)
 
-    with open("ssl_state.json") as f:
-        return json.load(f)
+    current_state = get_ssl_state()
+    current_state[domain] = ssl_status
+
+    set_ssl_state(current_state)
+
+    return ssl_status
 
 
-# After certbot command returns success
-update_ssl_state("success")
+def enable_auto_renewal(domain: str) -> dict:
+    """
+    Enables SSL auto-renewal mode for a domain.
+    """
+    set_renewal_mode(domain, enabled=True)
 
-
-SSL_STATE_FILE = "ssl_state.json"
-
-def update_ssl_state(status: str):
-    data = {
-        "last_renewed_by": "SitePulseAI",
-        "last_renewed_at": datetime.utcnow().isoformat() + "Z",
-        "status": status
+    return {
+        "domain": domain,
+        "auto_renewal": True,
+        "status": "enabled",
     }
 
-    with open(SSL_STATE_FILE, "w") as f:
-        json.dump(data, f, indent=2)
 
+def disable_auto_renewal(domain: str) -> dict:
+    """
+    Disables SSL auto-renewal mode for a domain.
+    """
+    set_renewal_mode(domain, enabled=False)
 
-
+    return {
+        "domain": domain,
+        "auto_renewal": False,
+        "status": "disabled",
+    }
