@@ -4,6 +4,17 @@
 from datetime import datetime
 
 
+def mark_assisted_renewal(domain: str, renewed: bool = True) -> dict:
+    """
+    Marks a domain as having been renewed with assistance.
+    """
+    return {
+        "domain": domain,
+        "assisted_renewal": renewed
+    }
+
+
+
 # ssl_state.py
 def load_ssl_state():
 
