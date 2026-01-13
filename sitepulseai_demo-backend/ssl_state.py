@@ -6,7 +6,23 @@ from datetime import datetime
 
 # ssl_state.py
 def load_ssl_state():
+
+
     ...
+
+
+# ssl_state.py
+
+def update_ssl_state(domain: str, ssl_info: dict) -> dict:
+    """
+    Updates SSL state for a domain.
+    """
+    return {
+        "domain": domain,
+        "status": ssl_info.get("status", "unknown"),
+        "issuer": ssl_info.get("issuer"),
+        "expires_at": ssl_info.get("expires_at"),
+    }
 
 
 # In-memory store (can later be swapped for Redis / DB)

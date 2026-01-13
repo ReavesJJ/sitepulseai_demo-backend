@@ -144,21 +144,6 @@ def get_ssl_details(domain: str):
     }
 
 
-
-
-    if result["success"]:
-        update_ssl_state("success")
-        return {
-            "status": "renewed by SitePulseAI"
-        }
-
-    return {
-        "status": "renewal failed",
-        "error": result["error"]
-    }
-
-
-
 @app.get("/ssl-status")
 def ssl_status(domain: str):
     return get_ssl_details(domain)
