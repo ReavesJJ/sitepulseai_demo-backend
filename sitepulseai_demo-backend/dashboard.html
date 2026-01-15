@@ -201,33 +201,31 @@ fetch("https://sitepulseai-backend.onrender.com/ssl/state")
 
 
 <script>
-function startMonitoring() {
-  const url = document.getElementById("website-url").value;
-  if (!url) return alert("Please enter a valid website URL");
-  saveSite(url);
+const backendBase = "https://sitepulseai-backend.onrender.com";
 
+async function startMonitoring() {
+  const domainInput = document.getElementById("website-url");
+  const domain = domainInput.value.trim();
+  if (!domain) return alert("Please enter a valid website URL");
 
-  fetch("https://sitepulseai-backend.onrender.com/summary", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url: url })
-  })
-  .then(res => res.json())
-  .then(data => {
+  saveSite(domain);
+
+  // Step 1: Fetch site summary
+  try {
+    const summaryRes = await fetch(`${backendBase}/summary?url=${encodeURIComponent(domain)}`);
+    if (!summaryRes.ok) throw new Error("Failed to monitor");
+    const data = await summaryRes.json();
+
     document.getElementById("uptime").textContent = data.uptime || "";
     document.getElementById("response").textContent = data.response_time || "";
-    document.getElementById("seo").textContent = data.seo || "";
-    document.getElementById("ssl").textContent = data.ssl || "";
+    document.getElementById("seo").textContent = data.seo_status || "";
+    document.getElementById("ssl").textContent = data.ssl_status || "";
     document.getElementById("ai-summary").textContent = data.summary || "Summary unavailable.";
-    
 
-    
+    // Recommendations
     const suggestionsEl = document.getElementById("ai-suggestions");
     suggestionsEl.innerHTML = "";
-    const recommendations = data.recommendations && data.recommendations.length > 0 ? data.recommendations : [
-      
-    ];
-
+    const recommendations = data.recommendations || [];
     recommendations.forEach(suggestion => {
       const div = document.createElement("div");
       div.textContent = "💡 " + suggestion;
@@ -235,8 +233,7 @@ function startMonitoring() {
       suggestionsEl.appendChild(div);
     });
 
-
-
+    // Vulnerabilities
     const vulnEl = document.getElementById("vulnerabilities");
     if (vulnEl && data.vulnerabilities) {
       vulnEl.innerHTML = "";
@@ -247,33 +244,80 @@ function startMonitoring() {
         vulnEl.appendChild(v);
       });
     }
+  } catch (err) {
+    console.error("Monitoring Error:", err);
+    alert("⚠️ Failed to monitor site");
+  }
 
-
-
-    fetchSiteTraffic(url);
-  })
-  .catch(error => {
-    console.error("Monitoring Error:", error);
-    alert("⚠️ Failed to start monitoring");
-  });
-}
-
-function fetchSiteTraffic(url) {
-  fetch("https://sitepulseai-backend.onrender.com/track-visit", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url: url })
-  })
-  .then(res => res.json())
-  .then(data => {
-    document.getElementById("site-traffic").textContent = data.visits ? `${data.visits} total visits` : "";
-  })
-  .catch(err => {
+  // Step 2: Track site traffic
+  try {
+    const trafficRes = await fetch(`${backendBase}/track-visit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: domain })
+    });
+    const trafficData = await trafficRes.json();
+    document.getElementById("site-traffic").textContent = trafficData.visits ? `${trafficData.visits} total visits` : "";
+  } catch (err) {
     console.error("Site traffic fetch failed:", err);
     document.getElementById("site-traffic").textContent = "";
-  });
+  }
+
+  // Step 3: Load SSL state
+  await loadSSLState(domain);
 }
 
+// SSL Functions
+async function loadSSLState(domain) {
+  try {
+    const res = await fetch(`${backendBase}/ssl/state?domain=${encodeURIComponent(domain)}`);
+    const data = await res.json();
+
+    document.getElementById("ssl-managed").innerText =
+      `Managed by: ${data.renewal_mode === "monitor_only" ? "Hosting Provider" : "SitePulseAI"}`;
+
+    document.getElementById("ssl-renewed").innerText =
+      data.last_renewed_at
+        ? `Last renewed by SitePulseAI: ${new Date(data.last_renewed_at).toLocaleString()}`
+        : "SSL has not yet been renewed by SitePulseAI.";
+  } catch (err) {
+    console.error("SSL state fetch failed:", err);
+    document.getElementById("ssl-managed").innerText = "SSL state unavailable";
+    document.getElementById("ssl-renewed").innerText = "";
+  }
+}
+
+// SSL Actions
+async function enableAssisted(domain) {
+  try {
+    await fetch(`${backendBase}/ssl/enable-assisted?domain=${encodeURIComponent(domain)}`, { method: "POST" });
+    await loadSSLState(domain);
+  } catch (err) {
+    console.error("Enable assisted failed:", err);
+  }
+}
+
+async function approveRenewal(domain) {
+  try {
+    await fetch(`${backendBase}/ssl/assisted-renew?domain=${encodeURIComponent(domain)}`, { method: "POST" });
+    await loadSSLState(domain);
+  } catch (err) {
+    console.error("Approve renewal failed:", err);
+  }
+}
+
+async function dryRunSSL(domain) {
+  try {
+    const res = await fetch(`${backendBase}/ssl/dry-run?domain=${encodeURIComponent(domain)}`, { method: "POST" });
+    const data = await res.json();
+    document.getElementById("dry-run-result").innerText = data.message;
+  } catch (err) {
+    console.error("SSL dry-run failed:", err);
+    document.getElementById("dry-run-result").innerText = "Dry-run failed.";
+  }
+}
+
+// Local storage functions
 function saveSite(url) {
   let sites = JSON.parse(localStorage.getItem("savedSites") || "[]");
   if (!sites.includes(url)) {
@@ -287,14 +331,14 @@ function displaySavedSites() {
   const sites = JSON.parse(localStorage.getItem("savedSites") || "[]");
   const ul = document.getElementById("saved-sites");
   ul.innerHTML = "";
-  if (sites.length === 0) {
+  if (!sites.length) {
     ul.innerHTML = "<p class='text-gray-500'>No websites saved.</p>";
   } else {
     sites.forEach(site => {
       const li = document.createElement("li");
       li.innerHTML = `<button ondblclick="selectAndStartSite('${site}')"
-      
-      onclick="" class="flex items-center gap-2 text-left text-sm text-blue-400 hover:text-blue-600 transition" title="Double-click to start monitoring">🔗 <span>${site}</span></button>`;
+        class="flex items-center gap-2 text-left text-sm text-blue-400 hover:text-blue-600 transition"
+        title="Double-click to start monitoring">🔗 <span>${site}</span></button>`;
       ul.appendChild(li);
     });
   }
@@ -307,93 +351,17 @@ function selectAndStartSite(url) {
 
 function clearSavedSites() {
   localStorage.removeItem("savedSites");
-  const siteList = document.getElementById("saved-sites");
-  if (siteList) {
-    siteList.innerHTML = "<p class='text-gray-500'>No websites saved.</p>";
-  }
+  displaySavedSites();
   alert("Saved websites cleared.");
 }
 
-
+// Event bindings
 window.onload = displaySavedSites;
+document.getElementById("enable-assisted")?.addEventListener("click", () => enableAssisted(document.getElementById("website-url").value));
+document.getElementById("approve-renewal")?.addEventListener("click", () => approveRenewal(document.getElementById("website-url").value));
+document.getElementById("dry-run")?.addEventListener("click", () => dryRunSSL(document.getElementById("website-url").value));
 </script>
 
-
-
-<script>
-const domain = monitoredDomain;
-
-async function loadSSLState() {
-  const res = await fetch(`/ssl/state?domain=${domain}`);
-  const data = await res.json();
-
-  document.getElementById("ssl-managed").innerText =
-    `Managed by: ${data.renewal_mode === "monitor_only" ? "Hosting Provider" : "SitePulseAI"}`;
-
-  document.getElementById("ssl-renewed").innerText =
-    data.last_renewed_at
-      ? `Last renewed by SitePulseAI: ${new Date(data.last_renewed_at).toLocaleString()}`
-      : "SSL has not yet been renewed by SitePulseAI.";
-}
-
-document.getElementById("enable-assisted").onclick = async () => {
-  await fetch(`/ssl/enable-assisted?domain=${domain}`, { method: "POST" });
-  loadSSLState();
-};
-
-document.getElementById("approve-renewal").onclick = async () => {
-  await fetch(`/ssl/assisted-renew?domain=${domain}`, { method: "POST" });
-  loadSSLState();
-};
-
-loadSSLState();
-</script>
-
-
-<script>
-document.getElementById("dry-run").onclick = async () => {
-  const res = await fetch(`/ssl/dry-run?domain=${domain}`, {
-    method: "POST"
-  });
-  const data = await res.json();
-
-  document.getElementById("dry-run-result").innerText =
-    data.message;
-};
-</script>
-
-
-<script>
-document.addEventListener("DOMContentLoaded", () => {
-  const dryRunBtn = document.getElementById("dry-run");
-  const enableBtn = document.getElementById("enable-assisted");
-  const approveBtn = document.getElementById("approve-renewal");
-
-  if (!dryRunBtn || !enableBtn || !approveBtn) {
-    console.warn("SSL buttons not found in DOM yet");
-    return;
-  }
-
-  dryRunBtn.onclick = async () => {
-    console.log("Dry-run clicked");
-    const res = await fetch(`/ssl/dry-run?domain=${domain}`, { method: "POST" });
-    const data = await res.json();
-    document.getElementById("dry-run-result").innerText = data.message;
-  };
-
-  enableBtn.onclick = async () => {
-    console.log("Enable assisted clicked");
-    await fetch(`/ssl/enable-assisted?domain=${domain}`, { method: "POST" });
-    loadSSLState();
-  };
-
-  approveBtn.onclick = async () => {
-    console.log("Approve renewal clicked");
-    await fetch(`/ssl/assisted-renew?domain=${domain}`, { method: "POST" });
-    loadSSLState();
-  };
-});
-</script>
 
 
 </body>

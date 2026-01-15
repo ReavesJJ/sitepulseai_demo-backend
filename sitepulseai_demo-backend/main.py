@@ -24,16 +24,6 @@ from fastapi import FastAPI, Query
 
 app = FastAPI()
 
-@app.get("/summary")
-async def get_site_summary(url: str):
-    return {
-        "url": url,
-        "summary": "Site is reachable and responding normally",
-        "status": "ok"
-    }
-
-
-
 
 
 
@@ -44,6 +34,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+
+@app.get("/summary")
+async def get_site_summary(url: str):
+    return {
+        "url": url,
+        "summary": "Site is reachable and responding normally",
+        "status": "ok"
+    }
+
+
 
 app.include_router(ssl_router)
 
