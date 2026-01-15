@@ -24,6 +24,19 @@ from ssl_state import load_ssl_state
 
 app = FastAPI()
 
+@app.get("/summary")
+async def get_site_summary(url: str):
+    return {
+        "url": url,
+        "summary": "Site is reachable and responding normally",
+        "status": "ok"
+    }
+
+
+
+
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -164,11 +177,16 @@ def check_seo_tags(url):
         return "Missing: " + ", ".join(missing) if missing else "All tags present"
     except:
         return "SEO check failed"
+    
+    
 
-@app.post("/summary")
-async def get_site_summary(request: Request):
-    body = await request.json()
-    url = body.get("url")
+("")
+async def get_site_summary():
+    body = await()
+    url = body.get("")
+
+
+
 
     uptime = check_uptime(url)
     response_time = get_response_time(url)
