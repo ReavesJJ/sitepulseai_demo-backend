@@ -19,7 +19,7 @@ from ssl_state import set_renewal_mode
 from ssl_utils import check_ssl_validity
 # main.py or ssl_utils.py
 from ssl_state import load_ssl_state
-
+from fastapi import FastAPI, Query
 
 
 app = FastAPI()
@@ -180,14 +180,18 @@ def check_seo_tags(url):
     
     
 
-("")
-async def get_site_summary():
-    body = await()
-    url = body.get("")
+# Mock implementations
+def check_uptime(url): return "online"
+def get_response_time(url): return "120ms"
+def check_ssl_validity(url): return "valid"
+def check_seo_tags(url): return "good"
+def detect_common_vulnerabilities(url): return ["None detected"]
+traffic_log = {}
 
 
-
-
+@app.get("/summary")
+async def get_site_summary(url: str = Query(..., description="URL of the site to monitor")):
+    # Step 1 — Gather metrics
     uptime = check_uptime(url)
     response_time = get_response_time(url)
     ssl_status = check_ssl_validity(url)
@@ -195,11 +199,9 @@ async def get_site_summary():
     visits = traffic_log.get(url, 0)
     vulnerabilities = detect_common_vulnerabilities(url)
 
-    summary = f"Your site is {uptime}. SSL is {ssl_status}. Response time is {response_time}. SEO scan: {seo_status}.Detected vulnerabilities: {'; '.join(vulnerabilities)}"
-    
+    summary = f"Your site is {uptime}. SSL is {ssl_status}. Response time is {response_time}. SEO scan: {seo_status}. Detected vulnerabilities: {'; '.join(vulnerabilities)}"
 
-    
-
+    # Step 2 — Generate AI recommendations safely
     try:
         prompt = f"""
         A user has this website summary:
@@ -213,12 +215,21 @@ async def get_site_summary():
             temperature=0.7
         )
         recommendations = response.choices[0].message.content.strip().split("\n")
-    except:
+    except Exception as e:
+        print("OpenAI error:", e)
         recommendations = [
             "Improve load speed by optimizing image size and caching.",
             "Ensure all SEO meta tags are present and up to date.",
             "Update SSL certificate before expiration to maintain trust."
         ]
+
+    # Step 3 — Return clean JSON
+    return {
+        "url": url,
+        "summary": summary,
+        "recommendations": recommendations,
+        "visits": visits
+    }
 
 
 
