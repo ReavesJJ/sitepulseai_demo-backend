@@ -11,7 +11,8 @@ import requests
 import ssl
 import socket
 from urllib.parse import urlparse
-from ssl_state import update_ssl_state
+from ssl_utils import update_ssl_state
+
 
 import subprocess
 
