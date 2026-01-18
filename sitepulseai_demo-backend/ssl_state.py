@@ -1,43 +1,11 @@
 # ssl_state.py
-# Centralized SSL state handling for SitePulseAI
+# Centralized SSL state management for SitePulseAI
 
 from datetime import datetime
+from typing import Dict, Optional
 
-
-def mark_assisted_renewal(domain: str, renewed: bool = True) -> dict:
-    """
-    Marks a domain as having been renewed with assistance.
-    """
-    return {
-        "domain": domain,
-        "assisted_renewal": renewed
-    }
-
-
-
-# ssl_state.py
-def load_ssl_state():
-
-
-    ...
-
-
-# ssl_state.py
-
-def update_ssl_state(domain: str, ssl_info: dict) -> dict:
-    """
-    Updates SSL state for a domain.
-    """
-    return {
-        "domain": domain,
-        "status": ssl_info.get("status", "unknown"),
-        "issuer": ssl_info.get("issuer"),
-        "expires_at": ssl_info.get("expires_at"),
-    }
-
-
-# In-memory store (can later be swapped for Redis / DB)
-_ssl_state_store = {}
+# In-memory SSL state store (can be replaced with Redis / DB later)
+_ssl_state_store: Dict[str, dict] = {}
 
 
 def get_ssl_state(domain: str) -> dict:
@@ -51,17 +19,19 @@ def get_ssl_state(domain: str) -> dict:
         "issuer": None,
         "expires_at": None,
         "days_remaining": None,
-        "renewal_mode": "auto",
+        "renewal_mode": "auto",  # auto | assisted | manual
         "last_checked": None,
+        "last_renewed_by": None,
+        "last_renewed_at": None,
     })
 
 
 def set_ssl_state(
     domain: str,
     ssl_valid: bool,
-    issuer: str = None,
-    expires_at: str = None,
-    days_remaining: int = None
+    issuer: Optional[str] = None,
+    expires_at: Optional[str] = None,
+    days_remaining: Optional[int] = None
 ) -> dict:
     """
     Update SSL scan results for a domain.
@@ -73,7 +43,7 @@ def set_ssl_state(
         "issuer": issuer,
         "expires_at": expires_at,
         "days_remaining": days_remaining,
-        "last_checked": datetime.utcnow().isoformat(),
+        "last_checked": datetime.utcnow().isoformat()
     })
 
     _ssl_state_store[domain] = state
@@ -90,6 +60,30 @@ def set_renewal_mode(domain: str, mode: str) -> dict:
 
     state = get_ssl_state(domain)
     state["renewal_mode"] = mode
-    _ssl_state_store[domain] = state
 
+    _ssl_state_store[domain] = state
     return state
+
+
+def mark_assisted_renewal(domain: str) -> dict:
+    """
+    Mark a domain as renewed by SitePulseAI assistance.
+    """
+    state = get_ssl_state(domain)
+
+    state.update({
+        "renewal_mode": "assisted",
+        "last_renewed_by": "SitePulseAI",
+        "last_renewed_at": datetime.utcnow().isoformat()
+    })
+
+    _ssl_state_store[domain] = state
+    return state
+
+
+def reset_ssl_state(domain: str) -> dict:
+    """
+    Clear SSL tracking data for a domain.
+    """
+    _ssl_state_store.pop(domain, None)
+    return {"domain": domain, "status": "reset"}

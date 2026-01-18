@@ -18,12 +18,13 @@ from ssl_automation import run_certbot_renew
 from ssl_state import set_renewal_mode
 from ssl_utils import check_ssl_validity
 # main.py or ssl_utils.py
-from ssl_state import load_ssl_state
+
 from fastapi import FastAPI, Query
 
 
 app = FastAPI()
 
+app.include_router(ssl_router, prefix="/ssl")
 
 
 
