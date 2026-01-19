@@ -1,100 +1,27 @@
-
-from fastapi import FastAPI, Request
+# main.py
+from fastapi import FastAPI, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from datetime import datetime
-import requests
-import ssl
-import socket
-import os
-import time
-import openai
+import requests, ssl, socket, time, os
 from urllib.parse import urlparse
 from dotenv import load_dotenv
-from bs4 import BeautifulSoup
-from fastapi import APIRouter
-from ssl_automation import router as ssl_router
-from ssl_automation import run_certbot_renew
-from ssl_state import set_renewal_mode
-from ssl_utils import check_ssl_validity
-# main.py or ssl_utils.py
+import openai
 
-from fastapi import FastAPI, Query
-
-
-app = FastAPI()
-
-app.include_router(ssl_router, prefix="/ssl")
-
-
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-
-@app.get("/summary")
-async def get_site_summary(url: str):
-    return {
-        "url": url,
-        "summary": "Site is reachable and responding normally",
-        "status": "ok"
-    }
-
-
-
-app.include_router(ssl_router)
-
-@app.get("/")
-def root():
-    return {"message": "SitePulseAI Backend is live."}
-
-
-
-
-# ---------------------------
-# Vulnerability Scan Endpoint
-# ---------------------------
-vuln_router = APIRouter()
-
-class VulnerabilityRequest(BaseModel):
-    url: str
-
-@vuln_router.post("/vulnerabilities")
-def scan_vulnerabilities(payload: VulnerabilityRequest):
-    url = payload.url
-    return {
-        "url": url,
-        "scan_status": "complete",
-        "vulnerabilities_found": True,
-        "vulnerabilities": [
-            {
-                "type": "Information Disclosure",
-                "detail": "X-Powered-By header is exposed",
-                "severity": "Low",
-                "recommendation": "Remove or obfuscate the X-Powered-By header."
-            }
-        ]
-    }
-
-app.include_router(vuln_router)
-
-@app.get("/")
-def root():
-    return {"message": "SitePulseAI Backend is live."}
-
+# Load OpenAI API key
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+# SSL automation router
+from ssl_automation import router as ssl_router
+from ssl_state import get_ssl_state, set_ssl_state, set_renewal_mode, mark_assisted_renewal
 
-app.include_router(vuln_router)
+# -----------------------------
+# FastAPI app
+# -----------------------------
+app = FastAPI(title="SitePulseAI Backend")
 
-# CORS config
+# CORS for Netlify → Render
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -103,9 +30,89 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Site traffic tracker
+# Mount SSL router
+app.include_router(ssl_router, prefix="/ssl", tags=["SSL"])
+
+# -----------------------------
+# In-memory traffic log
+# -----------------------------
 traffic_log = {}
 
+# -----------------------------
+# Vulnerability scan model
+# -----------------------------
+class VulnerabilityRequest(BaseModel):
+    url: str
+
+# -----------------------------
+# Root / Health endpoint
+# -----------------------------
+@app.get("/")
+def root():
+    return {"message": "SitePulseAI Backend is live."}
+
+# -----------------------------
+# Website Summary endpoint
+# -----------------------------
+@app.get("/summary")
+async def get_site_summary(url: str = Query(..., description="URL of site to monitor")):
+    # Step 1 — Metrics
+    try:
+        uptime = check_uptime(url)
+        response_time = get_response_time(url)
+        ssl_status = check_ssl_validity(url)
+        seo_status = check_seo_tags(url)
+        vulnerabilities = detect_common_vulnerabilities(url)
+        visits = traffic_log.get(url, 0)
+
+        summary_text = (
+            f"Your site is {uptime}. SSL: {ssl_status}. "
+            f"Response time: {response_time}. SEO: {seo_status}. "
+            f"Detected vulnerabilities: {'; '.join(vulnerabilities)}"
+        )
+
+        # AI recommendations
+        try:
+            prompt = f"A user has this website summary:\n{summary_text}\nProvide 3 detailed, professional recommendations for improvements in performance, SEO, or security."
+            response = openai.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7
+            )
+            recommendations = response.choices[0].message.content.strip().split("\n")
+        except Exception:
+            recommendations = [
+                "Improve load speed by optimizing images and caching.",
+                "Ensure all SEO meta tags are present and up to date.",
+                "Monitor SSL certificate expiration and renew early."
+            ]
+
+        # Persist SSL state
+        set_ssl_state(
+            domain=url,
+            ssl_valid=ssl_status == "valid",
+            issuer=None,
+            expires_at=None,
+            days_remaining=None
+        )
+
+        return {
+            "url": url,
+            "summary": summary_text,
+            "uptime": uptime,
+            "response_time": response_time,
+            "ssl_status": ssl_status,
+            "seo_status": seo_status,
+            "vulnerabilities": vulnerabilities,
+            "visits": visits,
+            "recommendations": recommendations
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+# -----------------------------
+# Track site traffic
+# -----------------------------
 class SiteRequest(BaseModel):
     url: str
 
@@ -117,18 +124,17 @@ def track_visit(site: SiteRequest):
 
 @app.get("/traffic")
 def get_traffic(url: str):
-    visits = traffic_log.get(url, 0)
-    return {"total_visits": visits}
+    return {"total_visits": traffic_log.get(url, 0)}
 
-# Uptime checker
+# -----------------------------
+# Utility functions
+# -----------------------------
 def check_uptime(url):
     try:
         res = requests.get(url, timeout=6)
         return "Online" if res.status_code == 200 else "Offline"
     except:
         return "Offline"
-
-# Response time
 
 def get_response_time(url):
     try:
@@ -137,180 +143,43 @@ def get_response_time(url):
         return f"{int((time.time() - start) * 1000)}ms"
     except:
         return "N/A"
-    
 
-# SSL checker
+def check_ssl_validity(url):
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname or url
+        ctx = ssl.create_default_context()
+        with ctx.wrap_socket(socket.socket(), server_hostname=hostname) as s:
+            s.settimeout(5)
+            s.connect((hostname, 443))
+        return "valid"
+    except:
+        return "invalid"
 
-def get_ssl_details(domain: str):
-    
-    ctx = ssl.create_default_context()
-    with ctx.wrap_socket(socket.socket(), server_hostname=domain) as s:
-        s.settimeout(5)
-        s.connect((domain, 443))
-        cert = s.getpeercert()
-
-    expires = datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
-    days_left = (expires - datetime.utcnow()).days
-
-    return {
-        "valid": days_left > 0,
-        "issuer": dict(x[0] for x in cert["issuer"]).get("organizationName"),
-        "expires_on": expires.isoformat(),
-        "days_remaining": days_left
-    }
-
-
-@app.get("/ssl-status")
-def ssl_status(domain: str):
-    return get_ssl_details(domain)
-
-
-
-# SEO tag checker
 def check_seo_tags(url):
     try:
         html = requests.get(url, timeout=6).text.lower()
         missing = []
-        if "<meta name=\"description\"" not in html:
-            missing.append("description")
-        if "<meta name=\"keywords\"" not in html:
-            missing.append("keywords")
-        if "<title>" not in html:
-            missing.append("title")
-        return "Missing: " + ", ".join(missing) if missing else "All tags present"
+        if "<meta name=\"description\"" not in html: missing.append("description")
+        if "<meta name=\"keywords\"" not in html: missing.append("keywords")
+        if "<title>" not in html: missing.append("title")
+        return "All tags present" if not missing else "Missing: " + ", ".join(missing)
     except:
         return "SEO check failed"
-    
-    
-
-# Mock implementations
-def check_uptime(url): return "online"
-def get_response_time(url): return "120ms"
-def check_ssl_validity(url): return "valid"
-def check_seo_tags(url): return "good"
-def detect_common_vulnerabilities(url): return ["None detected"]
-traffic_log = {}
-
-
-@app.get("/summary")
-async def get_site_summary(url: str = Query(..., description="URL of the site to monitor")):
-    # Step 1 — Gather metrics
-    uptime = check_uptime(url)
-    response_time = get_response_time(url)
-    ssl_status = check_ssl_validity(url)
-    seo_status = check_seo_tags(url)
-    visits = traffic_log.get(url, 0)
-    vulnerabilities = detect_common_vulnerabilities(url)
-
-    summary = f"Your site is {uptime}. SSL is {ssl_status}. Response time is {response_time}. SEO scan: {seo_status}. Detected vulnerabilities: {'; '.join(vulnerabilities)}"
-
-    # Step 2 — Generate AI recommendations safely
-    try:
-        prompt = f"""
-        A user has this website summary:
-        {summary}
-
-        Provide 3 detailed, professional recommendations for improvements in performance, SEO, or security.
-        """
-        response = openai.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
-        )
-        recommendations = response.choices[0].message.content.strip().split("\n")
-    except Exception as e:
-        print("OpenAI error:", e)
-        recommendations = [
-            "Improve load speed by optimizing image size and caching.",
-            "Ensure all SEO meta tags are present and up to date.",
-            "Update SSL certificate before expiration to maintain trust."
-        ]
-
-    # Step 3 — Return clean JSON
-    return {
-        "url": url,
-        "summary": summary,
-        "recommendations": recommendations,
-        "visits": visits
-    }
-
-
-
-    return {
-        "uptime": uptime,
-        "response_time": response_time,
-        "ssl": ssl_status,
-        "seo": seo_status,
-        "summary": summary,
-        "recommendations": recommendations,
-        "visits": visits,
-        "vulnerabilities": vulnerabilities
-    }
-
 
 def detect_common_vulnerabilities(url):
     try:
         response = requests.get(url, timeout=6)
         headers = response.headers
         html = response.text.lower()
-
         issues = []
-
-        # Check for missing security headers
-        if "x-content-type-options" not in headers:
-            issues.append("Missing X-Content-Type-Options header.")
-        if "x-frame-options" not in headers:
-            issues.append("Missing X-Frame-Options header.")
-        if "content-security-policy" not in headers:
-            issues.append("Missing Content-Security-Policy header.")
-        if "strict-transport-security" not in headers:
-            issues.append("Missing Strict-Transport-Security header.")
-
-        # Check for exposed admin/login pages
-        if "/admin" in html or "wp-admin" in html:
-            issues.append("Exposed admin interface detected in page source.")
-
-        # Check for outdated jQuery
+        if "x-content-type-options" not in headers: issues.append("Missing X-Content-Type-Options header")
+        if "x-frame-options" not in headers: issues.append("Missing X-Frame-Options header")
+        if "content-security-policy" not in headers: issues.append("Missing Content-Security-Policy header")
+        if "strict-transport-security" not in headers: issues.append("Missing Strict-Transport-Security header")
+        if "/admin" in html or "wp-admin" in html: issues.append("Exposed admin interface detected")
         if "jquery" in html:
-            if "1.12" in html or "1.7" in html or "1.8" in html:
-                issues.append("Outdated jQuery version detected (1.x series).")
-
-        return issues if issues else ["No major vulnerabilities found."]
+            if any(ver in html for ver in ["1.12","1.7","1.8"]): issues.append("Outdated jQuery version detected")
+        return issues if issues else ["No major vulnerabilities found"]
     except Exception as e:
         return [f"Error during scan: {str(e)}"]
-
-
-
-def check_ssl_config(url):
-    try:
-        parsed = urlparse(url)
-        hostname = parsed.hostname
-        ctx = ssl.create_default_context()
-        with ctx.wrap_socket(socket.socket(), server_hostname=hostname) as s:
-            s.settimeout(5)
-            s.connect((hostname, 443))
-            cert = s.getpeercert()
-            subject = cert.get('subject', [])
-            issuer = cert.get('issuer', [])
-
-            details = {
-                "Subject": str(subject),
-                "Issuer": str(issuer)
-            }
-
-            if " Let's Encrypt" in str(issuer):
-                return "⚠️ SSL issued by Let's Encrypt – check renewal policy."
-            return "✅ SSL issuer and subject valid."
-    except Exception as e:
-        return f"❌ SSL check failed: {str(e)}"
-
-
-
-@app.get("/")
-def root():
-    return {"message": "SitePulseAI Backend is live."}
-
-
-
-
-
