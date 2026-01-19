@@ -19,7 +19,7 @@ def get_ssl_state(domain: str) -> dict:
         "issuer": None,
         "expires_at": None,
         "days_remaining": None,
-        "renewal_mode": "auto",  # auto | assisted | manual
+        "renewal_mode": "manual",  # auto | assisted | manual
         "last_checked": None,
         "last_renewed_by": None,
         "last_renewed_at": None,

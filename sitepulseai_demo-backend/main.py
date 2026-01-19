@@ -22,7 +22,6 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 app = FastAPI(title="SitePulseAI Backend")
 origins = [
     "http://127.0.0.1:5500",
-    "http://localhost:5500",
     "https://sitepulseai2.netlify.app",
 ]
 
@@ -33,8 +32,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+
 # Mount SSL router
 app.include_router(ssl_router, prefix="/ssl", tags=["SSL"])
+
+
+
 
 @app.get("/ssl/state")
 def get_ssl_state_endpoint(domain: str = Query(...)):

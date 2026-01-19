@@ -13,7 +13,7 @@ import socket
 from urllib.parse import urlparse
 from ssl_utils import update_ssl_state
 import subprocess
-
+from fastapi import APIRouter, Query
 from certbot_utils import certbot_dry_run
 from fastapi import APIRouter
 from certbot_utils import run_certbot_renew
@@ -25,12 +25,20 @@ from ssl_state import (
 
 
 
+router = APIRouter(prefix="/ssl", tags=["SSL Automation"])
+
+
+@router.get("/state")
+def ssl_state(domain: str = Query(...)):
+    parsed = urlparse(domain)
+    clean_domain = parsed.hostname or domain
+    return get_ssl_state(clean_domain)
+
 
 def run_certbot_renew(domain):
     # certbot logic here
     update_ssl_state(domain, renewed=True)
 
-router = APIRouter(prefix="/ssl", tags=["SSL Automation"])
 
 @router.post("/renew")
 def renew_ssl(domain: str):
