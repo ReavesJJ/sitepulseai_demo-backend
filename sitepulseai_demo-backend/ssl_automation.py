@@ -115,7 +115,8 @@ class RenewRequest(BaseModel):
     notify: bool = True
 
 # ---------- APP ----------
-app = FastAPI(title="SitePulseAI SSL Automation")
+app = FastAPI(title="SitePulseAI SSL " \
+"Automation")
 
 # ---------- UTIL: get cert expiry ----------
 def get_cert_expiry(domain: str, port: int = 443, timeout: int = 5):
