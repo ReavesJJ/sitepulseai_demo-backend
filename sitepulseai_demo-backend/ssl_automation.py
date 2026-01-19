@@ -12,20 +12,18 @@ import ssl
 import socket
 from urllib.parse import urlparse
 from ssl_utils import update_ssl_state
-
-
 import subprocess
 
+from certbot_utils import certbot_dry_run
 from fastapi import APIRouter
+from certbot_utils import run_certbot_renew
 from ssl_state import (
     get_ssl_state,
     set_renewal_mode,
     mark_assisted_renewal
 )
 
-from certbot_utils import certbot_dry_run
-from fastapi import APIRouter
-from certbot_utils import run_certbot_renew
+
 
 
 def run_certbot_renew(domain):

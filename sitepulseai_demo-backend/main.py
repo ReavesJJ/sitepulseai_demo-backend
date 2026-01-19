@@ -6,32 +6,43 @@ from datetime import datetime
 import requests, ssl, socket, time, os
 from urllib.parse import urlparse
 from dotenv import load_dotenv
+# SSL automation router
+from ssl_automation import router as ssl_router
+from ssl_state import get_ssl_state, set_ssl_state, set_renewal_mode, mark_assisted_renewal
 import openai
 
 # Load OpenAI API key
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# SSL automation router
-from ssl_automation import router as ssl_router
-from ssl_state import get_ssl_state, set_ssl_state, set_renewal_mode, mark_assisted_renewal
 
 # -----------------------------
 # FastAPI app
 # -----------------------------
 app = FastAPI(title="SitePulseAI Backend")
+origins = [
+    "http://127.0.0.1:5500",
+    "http://localhost:5500",
+    "https://sitepulseai.netlify.app",
+]
 
-# CORS for Netlify → Render
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # Mount SSL router
 app.include_router(ssl_router, prefix="/ssl", tags=["SSL"])
+
+@app.get("/ssl/state")
+def get_ssl_state_endpoint(domain: str = Query(...)):
+    return {
+        "domain": domain,
+        "ssl_state": get_ssl_state(domain)
+    }
+
 
 # -----------------------------
 # In-memory traffic log
