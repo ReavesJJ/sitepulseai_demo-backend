@@ -6,10 +6,14 @@ from datetime import datetime
 import requests, ssl, socket, time, os
 from dotenv import load_dotenv
 # SSL automation router
-from ssl_automation import router as ssl_router
-from ssl_state import get_ssl_state, set_ssl_state, set_renewal_mode, mark_assisted_renewal
+from ssl_state import set_ssl_state
 import openai
 from urllib.parse import urlparse
+from ssl_automation import router as ssl_router
+
+
+
+
 
 def normalize_domain(url: str) -> str:
     parsed = urlparse(url)
@@ -40,6 +44,7 @@ app.add_middleware(
         "https://www.sitepulseai.com",
         "http://127.0.0.1:5500"
     ],
+    allow_origins=["*"],  # <-- allows dashboard opened locally or anywhere
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,18 +53,7 @@ app.add_middleware(
 
 
 
-# Mount SSL router
-app.include_router(ssl_router, prefix="/ssl", tags=["SSL"])
 
-
-
-
-@app.get("/ssl/state")
-def get_ssl_state_endpoint(domain: str = Query(...)):
-    return {
-        "domain": domain,
-        "ssl_state": get_ssl_state(domain)
-    }
 
 
 # -----------------------------

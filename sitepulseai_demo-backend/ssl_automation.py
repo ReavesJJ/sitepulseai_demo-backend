@@ -24,15 +24,12 @@ from ssl_state import (
 )
 
 
-
 router = APIRouter(prefix="/ssl", tags=["SSL Automation"])
 
 
 @router.get("/state")
 def ssl_state(domain: str = Query(...)):
-    parsed = urlparse(domain)
-    clean_domain = parsed.hostname or domain
-    return get_ssl_state(clean_domain)
+    return get_ssl_state(domain)
 
 
 def run_certbot_renew(domain):
