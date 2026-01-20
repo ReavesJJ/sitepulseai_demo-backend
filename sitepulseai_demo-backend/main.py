@@ -4,12 +4,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from datetime import datetime
 import requests, ssl, socket, time, os
-from urllib.parse import urlparse
 from dotenv import load_dotenv
 # SSL automation router
 from ssl_automation import router as ssl_router
 from ssl_state import get_ssl_state, set_ssl_state, set_renewal_mode, mark_assisted_renewal
 import openai
+from urllib.parse import urlparse
+
+def normalize_domain(url: str) -> str:
+    parsed = urlparse(url)
+    return parsed.hostname or url
+
+
+
+
 
 # Load OpenAI API key
 load_dotenv()
@@ -27,11 +35,16 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=[
+        "https://sitepulseai.com",
+        "https://www.sitepulseai.com",
+        "http://127.0.0.1:5500"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 
@@ -71,15 +84,19 @@ def root():
 # Website Summary endpoint
 # -----------------------------
 @app.get("/summary")
-async def get_site_summary(url: str = Query(..., description="URL of site to monitor")):
-    # Step 1 — Metrics
+async def get_site_summary(
+    url: str = Query(..., description="URL of site to monitor")
+):
+    domain = normalize_domain(url)
+
     try:
         uptime = check_uptime(url)
         response_time = get_response_time(url)
-        ssl_status = check_ssl_validity(url)
+        ssl_status = check_ssl_validity(domain)
         seo_status = check_seo_tags(url)
         vulnerabilities = detect_common_vulnerabilities(url)
-        visits = traffic_log.get(url, 0)
+
+        visits = traffic_log.get(domain, 0)
 
         summary_text = (
             f"Your site is {uptime}. SSL: {ssl_status}. "
@@ -87,25 +104,9 @@ async def get_site_summary(url: str = Query(..., description="URL of site to mon
             f"Detected vulnerabilities: {'; '.join(vulnerabilities)}"
         )
 
-        # AI recommendations
-        try:
-            prompt = f"A user has this website summary:\n{summary_text}\nProvide 3 detailed, professional recommendations for improvements in performance, SEO, or security."
-            response = openai.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7
-            )
-            recommendations = response.choices[0].message.content.strip().split("\n")
-        except Exception:
-            recommendations = [
-                "Improve load speed by optimizing images and caching.",
-                "Ensure all SEO meta tags are present and up to date.",
-                "Monitor SSL certificate expiration and renew early."
-            ]
-
-        # Persist SSL state
+        # Persist SSL state (DOMAIN ONLY)
         set_ssl_state(
-            domain=url,
+            domain=domain,
             ssl_valid=ssl_status == "valid",
             issuer=None,
             expires_at=None,
@@ -114,6 +115,7 @@ async def get_site_summary(url: str = Query(..., description="URL of site to mon
 
         return {
             "url": url,
+            "domain": domain,
             "summary": summary_text,
             "uptime": uptime,
             "response_time": response_time,
@@ -121,10 +123,11 @@ async def get_site_summary(url: str = Query(..., description="URL of site to mon
             "seo_status": seo_status,
             "vulnerabilities": vulnerabilities,
             "visits": visits,
-            "recommendations": recommendations
         }
+
     except Exception as e:
         return {"error": str(e)}
+
 
 # -----------------------------
 # Track site traffic
