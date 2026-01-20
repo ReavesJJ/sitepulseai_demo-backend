@@ -10,6 +10,32 @@ from ssl_state import set_ssl_state
 import openai
 from urllib.parse import urlparse
 from ssl_automation import router as ssl_router
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI(title="SitePulseAI Demo Backend")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/")
+def root():
+    return {"status": "SitePulseAI backend running"}
+
+@app.get("/health")
+def health():
+    return {
+        "status": "ok",
+        "service": "sitepulseai_demo_backend"
+    }
+
+
+app.include_router(ssl_router)
 
 
 
@@ -31,24 +57,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 # -----------------------------
 # FastAPI app
 # -----------------------------
-app = FastAPI(title="SitePulseAI Backend")
-origins = [
-    "http://127.0.0.1:5500",
-    "https://sitepulseai2.netlify.app",
-]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://sitepulseai.com",
-        "https://www.sitepulseai.com",
-        "http://127.0.0.1:5500"
-    ],
-    
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 

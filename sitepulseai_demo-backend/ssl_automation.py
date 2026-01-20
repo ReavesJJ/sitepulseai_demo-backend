@@ -23,6 +23,19 @@ from ssl_state import (
     mark_assisted_renewal
 )
 
+from fastapi import APIRouter, Query
+from ssl_state import get_ssl_state 
+
+router = APIRouter(
+    prefix="/ssl",
+    tags=["SSL Automation"]
+)
+
+@router.get("/state")
+def get_ssl_state_endpoint(domain: str = Query(...)):
+    return get_ssl_state(domain)
+
+
 
 router = APIRouter(prefix="/ssl", tags=["SSL Automation"])
 
