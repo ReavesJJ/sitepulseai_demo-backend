@@ -1,4 +1,6 @@
 # main.py
+from ssl_utils import normalize_domain, check_ssl_validity_and_expiry
+from ssl_state import load_ssl_state, update_ssl_state, get_ssl_state
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
