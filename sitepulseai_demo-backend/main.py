@@ -1,4 +1,5 @@
 # main.py
+print("🔥 LOADED MAIN.PY FROM SITEPULSEAI BACKEND 🔥")
 
 from fastapi import FastAPI, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
