@@ -1,28 +1,67 @@
 # main.py
+
 from fastapi import FastAPI, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from datetime import datetime
 import requests, ssl, socket, time, os
 from dotenv import load_dotenv
-# SSL automation router
-from ssl_state import set_ssl_state
-import openai
 from urllib.parse import urlparse
-from ssl_automation import router as ssl_router
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
+# --- External modules (your existing logic) ---
+from ssl_state import set_ssl_state
+from ssl_automation import router as ssl_router
+
+# --- App init ---
 app = FastAPI(title="SitePulseAI Demo Backend")
 
+# --- CORS (explicit + browser-safe) ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://127.0.0.1:5500",
+        "http://localhost:5500",
+        "https://sitepulseai.com",
+        "https://www.sitepulseai.com",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# --- Load env ---
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# -----------------------------
+# Routers
+# -----------------------------
+app.include_router(ssl_router)
+
+# -----------------------------
+# In-memory traffic log
+# -----------------------------
+traffic_log = {}
+
+# -----------------------------
+# Models
+# -----------------------------
+class VulnerabilityRequest(BaseModel):
+    url: str
+
+class SiteRequest(BaseModel):
+    url: str
+
+# -----------------------------
+# Utility helpers
+# -----------------------------
+def normalize_domain(url: str) -> str:
+    parsed = urlparse(url)
+    return parsed.hostname or url
+
+# -----------------------------
+# Root / Health
+# -----------------------------
 @app.get("/")
 def root():
     return {"status": "SitePulseAI backend running"}
@@ -34,57 +73,8 @@ def health():
         "service": "sitepulseai_demo_backend"
     }
 
-
-app.include_router(ssl_router)
-
-
-
-
-
-def normalize_domain(url: str) -> str:
-    parsed = urlparse(url)
-    return parsed.hostname or url
-
-
-
-
-
-# Load OpenAI API key
-load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
-
-
 # -----------------------------
-# FastAPI app
-# -----------------------------
-
-
-
-
-
-
-
-
-# -----------------------------
-# In-memory traffic log
-# -----------------------------
-traffic_log = {}
-
-# -----------------------------
-# Vulnerability scan model
-# -----------------------------
-class VulnerabilityRequest(BaseModel):
-    url: str
-
-# -----------------------------
-# Root / Health endpoint
-# -----------------------------
-@app.get("/")
-def root():
-    return {"message": "SitePulseAI Backend is live."}
-
-# -----------------------------
-# Website Summary endpoint
+# Website Summary
 # -----------------------------
 @app.get("/summary")
 async def get_site_summary(
@@ -95,7 +85,7 @@ async def get_site_summary(
     try:
         uptime = check_uptime(url)
         response_time = get_response_time(url)
-        ssl_status = check_ssl_validity(domain)
+        ssl_status = check_ssl_validity(url)
         seo_status = check_seo_tags(url)
         vulnerabilities = detect_common_vulnerabilities(url)
 
@@ -107,7 +97,7 @@ async def get_site_summary(
             f"Detected vulnerabilities: {'; '.join(vulnerabilities)}"
         )
 
-        # Persist SSL state (DOMAIN ONLY)
+        # Persist SSL state (domain only)
         set_ssl_state(
             domain=domain,
             ssl_valid=ssl_status == "valid",
@@ -131,22 +121,24 @@ async def get_site_summary(
     except Exception as e:
         return {"error": str(e)}
 
-
 # -----------------------------
 # Track site traffic
 # -----------------------------
-class SiteRequest(BaseModel):
-    url: str
-
 @app.post("/track-visit")
 def track_visit(site: SiteRequest):
-    url = site.url
-    traffic_log[url] = traffic_log.get(url, 0) + 1
-    return {"status": "tracked", "visits": traffic_log[url]}
+    domain = normalize_domain(site.url)
+    traffic_log[domain] = traffic_log.get(domain, 0) + 1
+
+    return {
+        "status": "tracked",
+        "domain": domain,
+        "visits": traffic_log[domain]
+    }
 
 @app.get("/traffic")
 def get_traffic(url: str):
-    return {"total_visits": traffic_log.get(url, 0)}
+    domain = normalize_domain(url)
+    return {"total_visits": traffic_log.get(domain, 0)}
 
 # -----------------------------
 # Utility functions
@@ -182,9 +174,14 @@ def check_seo_tags(url):
     try:
         html = requests.get(url, timeout=6).text.lower()
         missing = []
-        if "<meta name=\"description\"" not in html: missing.append("description")
-        if "<meta name=\"keywords\"" not in html: missing.append("keywords")
-        if "<title>" not in html: missing.append("title")
+
+        if '<meta name="description"' not in html:
+            missing.append("description")
+        if '<meta name="keywords"' not in html:
+            missing.append("keywords")
+        if "<title>" not in html:
+            missing.append("title")
+
         return "All tags present" if not missing else "Missing: " + ", ".join(missing)
     except:
         return "SEO check failed"
@@ -195,13 +192,24 @@ def detect_common_vulnerabilities(url):
         headers = response.headers
         html = response.text.lower()
         issues = []
-        if "x-content-type-options" not in headers: issues.append("Missing X-Content-Type-Options header")
-        if "x-frame-options" not in headers: issues.append("Missing X-Frame-Options header")
-        if "content-security-policy" not in headers: issues.append("Missing Content-Security-Policy header")
-        if "strict-transport-security" not in headers: issues.append("Missing Strict-Transport-Security header")
-        if "/admin" in html or "wp-admin" in html: issues.append("Exposed admin interface detected")
+
+        if "x-content-type-options" not in headers:
+            issues.append("Missing X-Content-Type-Options header")
+        if "x-frame-options" not in headers:
+            issues.append("Missing X-Frame-Options header")
+        if "content-security-policy" not in headers:
+            issues.append("Missing Content-Security-Policy header")
+        if "strict-transport-security" not in headers:
+            issues.append("Missing Strict-Transport-Security header")
+
+        if "/admin" in html or "wp-admin" in html:
+            issues.append("Exposed admin interface detected")
+
         if "jquery" in html:
-            if any(ver in html for ver in ["1.12","1.7","1.8"]): issues.append("Outdated jQuery version detected")
+            if any(ver in html for ver in ["1.12", "1.7", "1.8"]):
+                issues.append("Outdated jQuery version detected")
+
         return issues if issues else ["No major vulnerabilities found"]
+
     except Exception as e:
         return [f"Error during scan: {str(e)}"]
