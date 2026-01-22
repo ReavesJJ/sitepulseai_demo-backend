@@ -10,7 +10,8 @@ from dotenv import load_dotenv
 from urllib.parse import urlparse
 
 # SSL automation router
-from ssl_state import set_ssl_state
+from ssl_utils import update_ssl_state
+from ssl_state import get_ssl_state
 from ssl_automation import router as ssl_router
 
 # -----------------------------
@@ -99,7 +100,7 @@ async def get_site_summary(
         )
 
         # Persist SSL state
-        set_ssl_state(
+        update_ssl_state(
             domain=domain,
             ssl_valid=ssl_status == "valid",
             issuer=None,
