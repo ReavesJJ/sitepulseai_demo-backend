@@ -1,89 +1,87 @@
 # ssl_state.py
 # Centralized SSL state management for SitePulseAI
-
+# ssl_state.py
+import json
+import os
 from datetime import datetime
-from typing import Dict, Optional
+from threading import Lock
 
-# In-memory SSL state store (can be replaced with Redis / DB later)
-_ssl_state_store: Dict[str, dict] = {}
+STATE_FILE = "ssl_state.json"
+lock = Lock()
 
+def load_ssl_state() -> dict:
+    """
+    Loads the SSL state from file.
+    Returns a dict of domains.
+    """
+    if not os.path.exists(STATE_FILE):
+        return {}
+    with lock:
+        with open(STATE_FILE, "r") as f:
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                return {}
+
+def save_ssl_state(state: dict):
+    """
+    Saves the SSL state to file atomically.
+    """
+    with lock:
+        with open(STATE_FILE, "w") as f:
+            json.dump(state, f, indent=2)
 
 def get_ssl_state(domain: str) -> dict:
     """
-    Retrieve SSL state information for a domain.
-    Returns defaults if domain not yet tracked.
+    Returns the SSL state for a domain.
     """
-    return _ssl_state_store.get(domain, {
-        "domain": domain,
-        "ssl_valid": None,
-        "issuer": None,
-        "expires_at": None,
-        "days_remaining": None,
-        "renewal_mode": "manual",  # auto | assisted | manual
-        "last_checked": None,
-        "last_renewed_by": None,
-        "last_renewed_at": None,
-    })
+    state = load_ssl_state()
+    return state.get(domain)
 
-
-def set_ssl_state(
+def update_ssl_state(
     domain: str,
-    ssl_valid: bool,
-    issuer: Optional[str] = None,
-    expires_at: Optional[str] = None,
-    days_remaining: Optional[int] = None
-) -> dict:
+    ssl_valid=None,
+    issuer=None,
+    expires_at=None,
+    days_remaining=None,
+    renewal_mode=None,
+    last_renewed_at=None,
+    last_autofix_attempt=None,
+    last_autofix_result=None,
+    audit_note=None
+):
     """
-    Update SSL scan results for a domain.
+    Update the SSL state for a domain with new values.
+    Creates entry if missing.
     """
-    state = get_ssl_state(domain)
+    state = load_ssl_state()
 
-    state.update({
-        "ssl_valid": ssl_valid,
-        "issuer": issuer,
-        "expires_at": expires_at,
-        "days_remaining": days_remaining,
-        "last_checked": datetime.utcnow().isoformat()
-    })
+    if domain not in state:
+        state[domain] = {}
 
-    _ssl_state_store[domain] = state
-    return state
+    entry = state[domain]
 
+    if ssl_valid is not None:
+        entry["ssl_valid"] = ssl_valid
+    if issuer is not None:
+        entry["issuer"] = issuer
+    if expires_at is not None:
+        entry["expires_at"] = expires_at
+    if days_remaining is not None:
+        entry["days_remaining"] = days_remaining
+    if renewal_mode is not None:
+        entry["renewal_mode"] = renewal_mode
+    if last_renewed_at is not None:
+        entry["last_renewed_at"] = last_renewed_at
+    if last_autofix_attempt is not None:
+        entry["last_autofix_attempt"] = last_autofix_attempt
+    if last_autofix_result is not None:
+        entry["last_autofix_result"] = last_autofix_result
+    if audit_note is not None:
+        entry.setdefault("audit_log", []).append({
+            "timestamp": datetime.utcnow().isoformat(),
+            "note": audit_note
+        })
 
-def set_renewal_mode(domain: str, mode: str) -> dict:
-    """
-    Set SSL renewal mode.
-    Allowed values: auto, assisted, manual
-    """
-    if mode not in {"auto", "assisted", "manual"}:
-        raise ValueError("Invalid renewal mode")
-
-    state = get_ssl_state(domain)
-    state["renewal_mode"] = mode
-
-    _ssl_state_store[domain] = state
-    return state
-
-
-def mark_assisted_renewal(domain: str) -> dict:
-    """
-    Mark a domain as renewed by SitePulseAI assistance.
-    """
-    state = get_ssl_state(domain)
-
-    state.update({
-        "renewal_mode": "assisted",
-        "last_renewed_by": "SitePulseAI",
-        "last_renewed_at": datetime.utcnow().isoformat()
-    })
-
-    _ssl_state_store[domain] = state
-    return state
-
-
-def reset_ssl_state(domain: str) -> dict:
-    """
-    Clear SSL tracking data for a domain.
-    """
-    _ssl_state_store.pop(domain, None)
-    return {"domain": domain, "status": "reset"}
+    state[domain] = entry
+    save_ssl_state(state)

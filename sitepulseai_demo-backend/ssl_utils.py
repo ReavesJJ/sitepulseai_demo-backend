@@ -1,100 +1,55 @@
 # ssl_utils.py
 # SSL inspection utilities for SitePulseAI
-
+# ssl_utils.py
 import ssl
 import socket
 from datetime import datetime
 from urllib.parse import urlparse
 
-from ssl_state import set_ssl_state, set_renewal_mode
-
-
-def check_ssl_validity(url: str) -> dict:
+def normalize_domain(url: str) -> str:
     """
-    Check SSL certificate validity for a given URL.
-    Returns a consistent dict structure required by main.py.
+    Extracts the hostname from a URL.
     """
+    parsed = urlparse(url)
+    return parsed.hostname or url.strip()
+
+def check_ssl_validity_and_expiry(domain: str) -> dict:
+    """
+    Checks SSL validity, issuer, expiry, and days remaining.
+    Returns dict with:
+    {
+        "valid": bool,
+        "issuer": str,
+        "expires_at": ISO string,
+        "days_remaining": int
+    }
+    """
+    hostname = domain.replace("https://", "").replace("http://", "").strip()
+
+    ctx = ssl.create_default_context()
     try:
-        parsed = urlparse(url if url.startswith("http") else f"https://{url}")
-        hostname = parsed.hostname
-
-        if not hostname:
-            raise ValueError("Invalid hostname")
-
-        context = ssl.create_default_context()
-
-        with socket.create_connection((hostname, 443), timeout=5) as sock:
-            with context.wrap_socket(sock, server_hostname=hostname) as ssock:
-                cert = ssock.getpeercert()
-
-        issuer = dict(x[0] for x in cert.get("issuer", []))
-        issued_by = issuer.get("organizationName")
-
-        expires_raw = cert.get("notAfter")
-        expires_at = datetime.strptime(
-            expires_raw, "%b %d %H:%M:%S %Y %Z"
-        )
-
-        days_remaining = (expires_at - datetime.utcnow()).days
-        valid = days_remaining > 0
-
-        return {
-            "valid": valid,
-            "status": "Valid" if valid else "Expired",
-            "issuer": issued_by,
-            "expires_at": expires_at.isoformat(),
-            "days_remaining": days_remaining,
-        }
-
-    except Exception as e:
+        with ctx.wrap_socket(socket.socket(), server_hostname=hostname) as s:
+            s.settimeout(6)
+            s.connect((hostname, 443))
+            cert = s.getpeercert()
+    except Exception:
         return {
             "valid": False,
-            "status": "Error",
             "issuer": None,
             "expires_at": None,
-            "days_remaining": None,
-            "error": str(e),
+            "days_remaining": 0
         }
 
+    expires_at_str = cert.get("notAfter")
+    expires_at = datetime.strptime(expires_at_str, "%b %d %H:%M:%S %Y %Z")
+    days_remaining = (expires_at - datetime.utcnow()).days
 
-def update_ssl_state(domain: str) -> dict:
-    """
-    Check SSL status and persist it using ssl_state.
-    """
-    ssl_status = check_ssl_validity(domain)
-
-    set_ssl_state(
-        domain=domain,
-        ssl_valid=ssl_status.get("valid"),
-        issuer=ssl_status.get("issuer"),
-        expires_at=ssl_status.get("expires_at"),
-        days_remaining=ssl_status.get("days_remaining"),
-    )
-
-    return ssl_status
-
-
-def enable_auto_renewal(domain: str) -> dict:
-    """
-    Enable automatic SSL renewal mode.
-    """
-    set_renewal_mode(domain, "auto")
+    # Extract organizationName from issuer
+    issuer = dict(x[0] for x in cert.get("issuer", [])).get("organizationName")
 
     return {
-        "domain": domain,
-        "auto_renewal": True,
-        "status": "enabled",
-    }
-
-
-def disable_auto_renewal(domain: str) -> dict:
-    """
-    Disable automatic SSL renewal mode.
-    """
-    set_renewal_mode(domain, "manual")
-
-    return {
-        "domain": domain,
-        "auto_renewal": False,
-        "status": "disabled",
+        "valid": True,
+        "issuer": issuer,
+        "expires_at": expires_at.isoformat(),
+        "days_remaining": days_remaining
     }
