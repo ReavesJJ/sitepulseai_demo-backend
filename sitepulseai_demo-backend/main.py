@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from urllib.parse import urlparse
 
 # SSL automation router
-from ssl_utils import update_ssl_state
+
 from ssl_state import get_ssl_state
 from ssl_automation import router as ssl_router
 
