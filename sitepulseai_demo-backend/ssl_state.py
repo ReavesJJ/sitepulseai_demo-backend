@@ -1,87 +1,86 @@
 # ssl_state.py
-# Centralized SSL state management for SitePulseAI
-# ssl_state.py
 import json
 import os
 from datetime import datetime
-from threading import Lock
 
 STATE_FILE = "ssl_state.json"
-lock = Lock()
 
-def load_ssl_state() -> dict:
-    """
-    Loads the SSL state from file.
-    Returns a dict of domains.
-    """
+
+def _load_state():
     if not os.path.exists(STATE_FILE):
         return {}
-    with lock:
+    try:
         with open(STATE_FILE, "r") as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                return {}
+            return json.load(f)
+    except Exception:
+        return {}
 
-def save_ssl_state(state: dict):
+
+def _save_state(state: dict):
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2)
+
+
+def get_ssl_state(domain: str):
+    state = _load_state()
+    return state.get(domain, {
+        "domain": domain,
+        "ssl_status": "unknown",
+        "expiry_date": None,
+        "days_remaining": None,
+        "renewal_mode": "auto",   # auto | assisted | manual
+        "last_checked": None,
+        "last_updated": None
+    })
+
+
+def update_ssl_state(domain: str, ssl_status: str, expiry_date=None, days_remaining=None):
+    state = _load_state()
+    state[domain] = {
+        "domain": domain,
+        "ssl_status": ssl_status,
+        "expiry_date": expiry_date,
+        "days_remaining": days_remaining,
+        "renewal_mode": state.get(domain, {}).get("renewal_mode", "auto"),
+        "last_checked": datetime.utcnow().isoformat(),
+        "last_updated": datetime.utcnow().isoformat()
+    }
+    _save_state(state)
+    return state[domain]
+
+
+def set_renewal_mode(domain: str, mode: str):
     """
-    Saves the SSL state to file atomically.
+    mode: auto | assisted | manual
     """
-    with lock:
-        with open(STATE_FILE, "w") as f:
-            json.dump(state, f, indent=2)
+    if mode not in ["auto", "assisted", "manual"]:
+        raise ValueError("Invalid renewal mode. Must be auto, assisted, or manual.")
 
-def get_ssl_state(domain: str) -> dict:
-    """
-    Returns the SSL state for a domain.
-    """
-    state = load_ssl_state()
-    return state.get(domain)
+    state = _load_state()
+    current = state.get(domain, {})
 
-def update_ssl_state(
-    domain: str,
-    ssl_valid=None,
-    issuer=None,
-    expires_at=None,
-    days_remaining=None,
-    renewal_mode=None,
-    last_renewed_at=None,
-    last_autofix_attempt=None,
-    last_autofix_result=None,
-    audit_note=None
-):
-    """
-    Update the SSL state for a domain with new values.
-    Creates entry if missing.
-    """
-    state = load_ssl_state()
+    current.update({
+        "domain": domain,
+        "renewal_mode": mode,
+        "last_updated": datetime.utcnow().isoformat()
+    })
 
-    if domain not in state:
-        state[domain] = {}
+    state[domain] = current
+    _save_state(state)
+    return current
 
-    entry = state[domain]
 
-    if ssl_valid is not None:
-        entry["ssl_valid"] = ssl_valid
-    if issuer is not None:
-        entry["issuer"] = issuer
-    if expires_at is not None:
-        entry["expires_at"] = expires_at
-    if days_remaining is not None:
-        entry["days_remaining"] = days_remaining
-    if renewal_mode is not None:
-        entry["renewal_mode"] = renewal_mode
-    if last_renewed_at is not None:
-        entry["last_renewed_at"] = last_renewed_at
-    if last_autofix_attempt is not None:
-        entry["last_autofix_attempt"] = last_autofix_attempt
-    if last_autofix_result is not None:
-        entry["last_autofix_result"] = last_autofix_result
-    if audit_note is not None:
-        entry.setdefault("audit_log", []).append({
-            "timestamp": datetime.utcnow().isoformat(),
-            "note": audit_note
-        })
+def mark_assisted_renewal(domain: str, reason: str = None):
+    state = _load_state()
+    current = state.get(domain, {})
 
-    state[domain] = entry
-    save_ssl_state(state)
+    current.update({
+        "domain": domain,
+        "renewal_mode": "assisted",
+        "assisted_reason": reason or "Manual intervention required",
+        "last_updated": datetime.utcnow().isoformat()
+    })
+
+    state[domain] = current
+    _save_state(state)
+    return current
