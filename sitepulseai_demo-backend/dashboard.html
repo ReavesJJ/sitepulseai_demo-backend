@@ -98,35 +98,34 @@
 
 <div id="ssl-renewal-flag" class="ssl-flag"></div>
 
-<script>
-const backendBase = "https://sitepulseai-demo-backend.onrender.com";
+<script type="module">
+const backendBase = "https://sitepulseai-backend.onrender.com";
 
 // -----------------------
-// Normalize domain for SSL calls
+// Normalize domain helper
 // -----------------------
-function normalizeDomain(input) {
+function normalizeDomain(url) {
   try {
-    const url = new URL(input.startsWith("http") ? input : `https://${input}`);
-    return url.hostname;
+    const parsed = new URL(url);
+    return parsed.hostname;
   } catch {
-    return input.replace(/^https?:\/\//, "").split("/")[0];
+    return url;
   }
 }
 
 // -----------------------
-// Main Monitoring Function
+// Start Monitoring
 // -----------------------
 async function startMonitoring() {
   const domainInput = document.getElementById("website-url");
   const domain = domainInput.value.trim();
-  if (!domain) return alert("sitepulseai.com");
+  if (!domain) return alert("Enter a valid domain.");
 
   saveSite(domain);
 
   // 1️⃣ Fetch summary
   try {
     const summaryRes = await fetch(`${backendBase}/summary?url=${encodeURIComponent(domain)}`);
-    if (!summaryRes.ok) throw new Error("Failed to monitor");
     const data = await summaryRes.json();
 
     document.getElementById("uptime").textContent = data.uptime || "";
@@ -135,19 +134,9 @@ async function startMonitoring() {
     document.getElementById("ssl").textContent = data.ssl_status || "";
     document.getElementById("ai-summary").textContent = data.summary || "Summary unavailable.";
 
-    // Recommendations
-    const suggestionsEl = document.getElementById("ai-suggestions");
-    suggestionsEl.innerHTML = "";
-    (data.recommendations || []).forEach(s => {
-      const div = document.createElement("div");
-      div.textContent = "💡 " + s;
-      div.className = "text-purple-300";
-      suggestionsEl.appendChild(div);
-    });
-
     // Vulnerabilities
     const vulnEl = document.getElementById("vulnerabilities");
-    if(vulnEl){
+    if (vulnEl) {
       vulnEl.innerHTML = "";
       (data.vulnerabilities || []).forEach(v => {
         const div = document.createElement("div");
@@ -170,32 +159,35 @@ async function startMonitoring() {
       body: JSON.stringify({ url: domain })
     });
     const trafficData = await trafficRes.json();
-    document.getElementById("site-traffic").textContent = trafficData.visits ? `${trafficData.visits} total visits` : "";
+    document.getElementById("site-traffic").textContent = trafficData.visits
+      ? `${trafficData.visits} total visits`
+      : "";
   } catch(err) {
     console.error("Site traffic fetch failed:", err);
     document.getElementById("site-traffic").textContent = "";
   }
 
-  // 3️⃣ Load SSL state using normalized hostname
-  const cleanDomain = normalizeDomain(domain);
-  await loadSSLState(cleanDomain);
+  // 3️⃣ Load SSL state
+  await loadSSLState(domain);
 }
 
 // -----------------------
 // SSL Functions
 // -----------------------
 async function loadSSLState(domain) {
+  const cleanDomain = normalizeDomain(domain);
   try {
-    const res = await fetch(`${backendBase}/ssl/state?domain=${encodeURIComponent(domain)}`);
+    const res = await fetch(`${backendBase}/ssl/state?domain=${encodeURIComponent(cleanDomain)}`);
     const data = await res.json();
 
     document.getElementById("ssl-managed").innerText =
-      `Managed by: ${data.renewal_mode === "monitor_only" ? "Hosting Provider" : "SitePulseAI"}`;
+      `Managed by: ${data.renewal_mode || "SitePulseAI (stub)"}`;
 
     document.getElementById("ssl-renewed").innerText =
-      data.last_renewed_at
-        ? `Last renewed by SitePulseAI: ${new Date(data.last_renewed_at).toLocaleString()}`
-        : "SSL has not yet been renewed by SitePulseAI.";
+      data.expires_at
+        ? `Expires at: ${new Date(data.expires_at).toLocaleString()}`
+        : "SSL has not yet been renewed.";
+
   } catch(err) {
     console.error("SSL state fetch failed:", err);
     document.getElementById("ssl-managed").innerText = "SSL state unavailable";
@@ -203,77 +195,36 @@ async function loadSSLState(domain) {
   }
 }
 
-async function enableAssisted(domain){
-  try{
-    await fetch(`${backendBase}/ssl/enable-assisted?domain=${encodeURIComponent(domain)}`, { method: "POST" });
-    await loadSSLState(normalizeDomain(domain));
-  }catch(err){ console.error(err); }
+async function enableAssisted(domain) {
+  try {
+    const res = await fetch(`${backendBase}/ssl/enable-assisted?domain=${encodeURIComponent(domain)}`, { method: "POST" });
+    const data = await res.json();
+    console.log("Enable assisted response:", data);
+    await loadSSLState(domain);
+  } catch(err) {
+    console.error("Enable assisted failed:", err);
+  }
 }
 
-async function approveRenewal(domain){
-  try{
-    await fetch(`${backendBase}/ssl/assisted-renew?domain=${encodeURIComponent(domain)}`, { method: "POST" });
-    await loadSSLState(normalizeDomain(domain));
-  }catch(err){ console.error(err); }
+async function approveRenewal(domain) {
+  try {
+    const res = await fetch(`${backendBase}/ssl/assisted-renew?domain=${encodeURIComponent(domain)}`, { method: "POST" });
+    const data = await res.json();
+    console.log("Assisted renew response:", data);
+    await loadSSLState(domain);
+  } catch(err) {
+    console.error("Assisted renew failed:", err);
+  }
 }
 
-async function dryRunSSL(domain){
-  try{
+async function dryRunSSL(domain) {
+  try {
     const res = await fetch(`${backendBase}/ssl/dry-run?domain=${encodeURIComponent(domain)}`, { method: "POST" });
     const data = await res.json();
     document.getElementById("dry-run-result").innerText = data.message;
-  }catch(err){
-    console.error(err);
+  } catch(err) {
+    console.error("Dry-run failed:", err);
     document.getElementById("dry-run-result").innerText = "Dry-run failed.";
   }
 }
-
-// -----------------------
-// Local Storage
-// -----------------------
-function saveSite(url){
-  let sites = JSON.parse(localStorage.getItem("savedSites") || "[]");
-  if(!sites.includes(url)){
-    sites.push(url);
-    localStorage.setItem("savedSites", JSON.stringify(sites));
-    displaySavedSites();
-  }
-}
-
-function displaySavedSites(){
-  const sites = JSON.parse(localStorage.getItem("savedSites") || "[]");
-  const ul = document.getElementById("saved-sites");
-  ul.innerHTML = "";
-  if(!sites.length){
-    ul.innerHTML = "<p class='text-gray-500'>No websites saved.</p>";
-  }else{
-    sites.forEach(site=>{
-      const li = document.createElement("li");
-      li.innerHTML = `<button ondblclick="selectAndStartSite('${site}')"
-        class="flex items-center gap-2 text-left text-sm text-blue-400 hover:text-blue-600 transition"
-        title="Double-click to start monitoring">🔗 <span>${site}</span></button>`;
-      ul.appendChild(li);
-    });
-  }
-}
-
-function selectAndStartSite(url){
-  document.getElementById("website-url").value = url;
-  startMonitoring();
-}
-
-function clearSavedSites(){
-  localStorage.removeItem("savedSites");
-  displaySavedSites();
-  alert("Saved websites cleared.");
-}
-
-// -----------------------
-// Event Bindings
-// -----------------------
-window.onload = displaySavedSites;
-document.getElementById("enable-assisted")?.addEventListener("click", ()=> enableAssisted(document.getElementById("website-url").value));
-document.getElementById("approve-renewal")?.addEventListener("click", ()=> approveRenewal(document.getElementById("website-url").value));
-document.getElementById("dry-run")?.addEventListener("click", ()=> dryRunSSL(document.getElementById("website-url").value));
-
 </script>
