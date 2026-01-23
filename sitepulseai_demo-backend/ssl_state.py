@@ -2,85 +2,123 @@
 import json
 import os
 from datetime import datetime
+from typing import Dict, Any
 
-STATE_FILE = "ssl_state.json"
+STATE_FILE = os.path.join("data", "ssl_state.json")
+
+DEFAULT_STATE = {
+    "domains": {}
+}
 
 
-def _load_state():
+def _ensure_state_file():
+    os.makedirs("data", exist_ok=True)
     if not os.path.exists(STATE_FILE):
-        return {}
-    try:
-        with open(STATE_FILE, "r") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+        with open(STATE_FILE, "w") as f:
+            json.dump(DEFAULT_STATE, f, indent=2)
 
 
-def _save_state(state: dict):
+def _load_state() -> Dict[str, Any]:
+    _ensure_state_file()
+    with open(STATE_FILE, "r") as f:
+        return json.load(f)
+
+
+def _save_state(state: Dict[str, Any]):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f, indent=2)
 
 
-def get_ssl_state(domain: str):
-    state = _load_state()
-    return state.get(domain, {
-        "domain": domain,
-        "ssl_status": "unknown",
-        "expiry_date": None,
-        "days_remaining": None,
-        "renewal_mode": "auto",   # auto | assisted | manual
-        "last_checked": None,
-        "last_updated": None
-    })
+def _now() -> str:
+    return datetime.utcnow().isoformat()
 
 
-def update_ssl_state(domain: str, ssl_status: str, expiry_date=None, days_remaining=None):
+def init_domain(domain: str):
     state = _load_state()
-    state[domain] = {
-        "domain": domain,
-        "ssl_status": ssl_status,
-        "expiry_date": expiry_date,
-        "days_remaining": days_remaining,
-        "renewal_mode": state.get(domain, {}).get("renewal_mode", "auto"),
-        "last_checked": datetime.utcnow().isoformat(),
-        "last_updated": datetime.utcnow().isoformat()
-    }
+
+    if domain not in state["domains"]:
+        state["domains"][domain] = {
+            "domain": domain,
+            "ssl_valid": None,
+            "issuer": None,
+            "expires_at": None,
+            "days_remaining": None,
+            "last_checked_at": None,
+
+            "renewal_mode": "monitor_only",  # monitor_only | assisted | autonomous
+            "last_renewed_at": None,
+
+            "assisted_approvals": [],
+            "renewal_history": []
+        }
+
+        _save_state(state)
+
+
+def get_ssl_state(domain: str) -> Dict[str, Any]:
+    init_domain(domain)
+    state = _load_state()
+    return state["domains"][domain]
+
+
+def update_ssl_observation(
+    domain: str,
+    ssl_valid: bool,
+    issuer: str,
+    expires_at: str,
+    days_remaining: int
+):
+    init_domain(domain)
+    state = _load_state()
+
+    record = state["domains"][domain]
+    record["ssl_valid"] = ssl_valid
+    record["issuer"] = issuer
+    record["expires_at"] = expires_at
+    record["days_remaining"] = days_remaining
+    record["last_checked_at"] = _now()
+
     _save_state(state)
-    return state[domain]
+    return record
 
 
 def set_renewal_mode(domain: str, mode: str):
-    """
-    mode: auto | assisted | manual
-    """
-    if mode not in ["auto", "assisted", "manual"]:
-        raise ValueError("Invalid renewal mode. Must be auto, assisted, or manual.")
+    if mode not in ["monitor_only", "assisted", "autonomous"]:
+        raise ValueError("Invalid renewal mode")
 
+    init_domain(domain)
     state = _load_state()
-    current = state.get(domain, {})
 
-    current.update({
-        "domain": domain,
-        "renewal_mode": mode,
-        "last_updated": datetime.utcnow().isoformat()
+    record = state["domains"][domain]
+    record["renewal_mode"] = mode
+
+    _save_state(state)
+    return record
+
+
+def mark_assisted_approval(domain: str):
+    init_domain(domain)
+    state = _load_state()
+
+    record = state["domains"][domain]
+    record["assisted_approvals"].append(_now())
+
+    _save_state(state)
+    return record
+
+
+def mark_renewal(domain: str, success: bool, message: str = None):
+    init_domain(domain)
+    state = _load_state()
+
+    record = state["domains"][domain]
+    record["last_renewed_at"] = _now()
+
+    record["renewal_history"].append({
+        "timestamp": _now(),
+        "success": success,
+        "message": message
     })
 
-    state[domain] = current
     _save_state(state)
-    return current
-
-
-def mark_assisted_renewal(domain: str, reason: str = None):
-    state = _load_state()
-    current = state.get(domain, {})
-
-    current.update({
-        "domain": domain,
-        "renewal_mode": "assisted",
-        "assisted_reason": reason or "Manual intervention required",
-        "last_updated": datetime.utcnow().isoformat()
-    })
-
-    state[domain] = current
-    _save_state(state)
-    return current
+    return record
