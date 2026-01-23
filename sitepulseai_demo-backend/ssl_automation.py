@@ -1,13 +1,12 @@
 # ssl_automation.py
-from datetime import datetime, timedelta
-from fastapi import APIRouter, Query, HTTPException
-from ssl_state import get_ssl_state, update_ssl_state
+import subprocess
+from fastapi import APIRouter, Query
 from ssl_utils import normalize_domain, inspect_ssl
 from ssl_state import (
     get_ssl_state,
+    update_ssl_observation,
     set_renewal_mode,
-    mark_assisted_renewal,
-    update_ssl_observation
+    mark_assisted_renewal
 )
 
 router = APIRouter(
@@ -16,135 +15,104 @@ router = APIRouter(
 )
 
 # -----------------------------
-# Configuration (Phase 2A Stub)
+# Get SSL state for a domain
 # -----------------------------
-EXPIRY_WARNING_DAYS = 14
-AUTO_RENEW_THRESHOLD_DAYS = 5
-
-
-# -----------------------------
-# Core Observation Logic
-# -----------------------------
-def observe_ssl(domain: str) -> dict:
-    """
-    Pull live SSL data, persist observation into agent memory,
-    and return the merged state.
-    """
-    clean_domain = normalize_domain(domain)
-
-    try:
-        ssl_data = inspect_ssl(clean_domain)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"SSL निरीक्षण failed: {str(e)}")
-
-    expires_at = ssl_data.get("expires_at")
-    days_remaining = ssl_data.get("days_remaining")
-    issuer = ssl_data.get("issuer")
-    ssl_valid = ssl_data.get("valid", False)
-
-    update_ssl_observation(
-        domain=clean_domain,
-        ssl_valid=ssl_valid,
-        issuer=issuer,
-        expires_at=expires_at,
-        days_remaining=days_remaining
-    )
-
-    state = get_ssl_state(clean_domain)
-
-    # Policy signals
-    state["warning"] = (
-        days_remaining is not None and days_remaining <= EXPIRY_WARNING_DAYS
-    )
-
-    state["auto_renew_due"] = (
-        days_remaining is not None and days_remaining <= AUTO_RENEW_THRESHOLD_DAYS
-    )
-
-    return state
-
-
-# -----------------------------
-# Stub Autonomous Renewal
-# -----------------------------
-def stub_auto_renew(domain: str) -> dict:
-    """
-    Phase 2A stub: simulate SSL renewal without certbot.
-    """
-    clean_domain = normalize_domain(domain)
-
-    # Simulate a successful renewal event
-    now = datetime.utcnow()
-    fake_expiry = now + timedelta(days=90)
-
-    update_ssl_observation(
-        domain=clean_domain,
-        ssl_valid=True,
-        issuer="Stub-CA",
-        expires_at=fake_expiry.isoformat(),
-        days_remaining=90
-    )
-
-    state = get_ssl_state(clean_domain)
-    state["last_auto_renewed_at"] = now.isoformat()
-    state["renewal_note"] = "Stub auto-renew executed (Phase 2A)"
-
-    return state
-
-
-# -----------------------------
-# API Endpoints
-# -----------------------------
-@router.get("/observe")
-def observe_endpoint(domain: str = Query(...)):
-    """
-    Observe SSL state, persist it, and return agent view.
-    """
-    return observe_ssl(domain)
-
-
 @router.get("/state")
-def get_state_endpoint(domain: str = Query(...)):
+def ssl_state_endpoint(domain: str = Query(...)):
     """
-    Return current SSL agent memory for a domain.
+    Returns the current SSL state for a domain.
     """
-    clean_domain = normalize_domain(domain)
-    return get_ssl_state(clean_domain)
+    return get_ssl_state(domain)
 
-
+# -----------------------------
+# Enable assisted SSL mode
+# -----------------------------
 @router.post("/enable-assisted")
 def enable_assisted_endpoint(domain: str = Query(...)):
     """
-    Switch domain into assisted renewal mode.
+    Enable assisted SSL renewal mode for a domain.
     """
-    clean_domain = normalize_domain(domain)
-    return set_renewal_mode(clean_domain, "assisted")
+    return set_renewal_mode(domain, mode="assisted")
 
-
+# -----------------------------
+# Simulate assisted renewal approval
+# -----------------------------
 @router.post("/assisted-renew")
 def assisted_renew_endpoint(domain: str = Query(...)):
     """
-    Simulate a human-approved renewal.
+    Simulate approval of SSL renewal by user.
+    Marks assisted renewal in the SSL state.
     """
-    clean_domain = normalize_domain(domain)
-    mark_assisted_renewal(clean_domain)
-    return stub_auto_renew(clean_domain)
+    return mark_assisted_renewal(domain)
 
-
-@router.post("/auto-renew-stub")
-def auto_renew_stub_endpoint(domain: str = Query(...)):
+# -----------------------------
+# Dry-run renewal endpoint
+# -----------------------------
+@router.post("/dry-run")
+def ssl_dry_run_endpoint(domain: str = Query(...)):
     """
-    Phase 2A autonomous renewal stub endpoint.
+    Simulates SSL renewal without making any changes.
+    Returns a message indicating success/failure.
     """
-    clean_domain = normalize_domain(domain)
+    domain = normalize_domain(domain)
+    try:
+        # Inspect SSL locally
+        ssl_status, expiry_date = inspect_ssl(domain)
+        # Update the observation in ssl_state
+        update_ssl_observation(domain, ssl_status=ssl_status, expiry_date=expiry_date)
+        return {
+            "domain": domain,
+            "ssl_status": ssl_status,
+            "expiry_date": expiry_date,
+            "message": f"Dry-run complete. SSL status: {ssl_status}, expires: {expiry_date}"
+        }
+    except Exception as e:
+        return {
+            "domain": domain,
+            "ssl_status": "unknown",
+            "expiry_date": None,
+            "message": f"Dry-run failed: {str(e)}"
+        }
 
-    state = get_ssl_state(clean_domain)
-    mode = state.get("renewal_mode", "monitor_only")
-
-    if mode != "autonomous":
-        raise HTTPException(
-            status_code=403,
-            detail="Autonomous renewal not enabled for this domain."
+# -----------------------------
+# Actual renewal endpoint
+# -----------------------------
+@router.post("/renew")
+def renew_ssl_endpoint(domain: str = Query(...)):
+    """
+    Performs real SSL renewal using Certbot.
+    Updates SSL state after completion.
+    """
+    domain = normalize_domain(domain)
+    try:
+        process = subprocess.run(
+            ["certbot", "renew", "--cert-name", domain, "--quiet"],
+            capture_output=True,
+            text=True
         )
 
-    return stub_auto_renew(clean_domain)
+        if process.returncode == 0:
+            ssl_status, expiry_date = inspect_ssl(domain)
+            update_ssl_observation(domain, ssl_status=ssl_status, expiry_date=expiry_date)
+            return {
+                "domain": domain,
+                "ssl_status": ssl_status,
+                "expiry_date": expiry_date,
+                "message": "Renewal successful."
+            }
+
+        else:
+            return {
+                "domain": domain,
+                "ssl_status": "unknown",
+                "expiry_date": None,
+                "message": f"Renewal failed: {process.stderr}"
+            }
+
+    except Exception as e:
+        return {
+            "domain": domain,
+            "ssl_status": "unknown",
+            "expiry_date": None,
+            "message": f"Renewal exception: {str(e)}"
+        }

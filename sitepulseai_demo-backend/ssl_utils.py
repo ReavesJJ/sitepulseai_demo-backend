@@ -1,65 +1,45 @@
 # ssl_utils.py
 import ssl
 import socket
-from datetime import datetime
 from urllib.parse import urlparse
+from datetime import datetime
+from typing import Optional, Dict
+from ssl_state import update_ssl_observation
 
-
-def normalize_domain(url_or_domain: str) -> str:
+# -----------------------------
+# Domain Utilities
+# -----------------------------
+def normalize_domain(url: str) -> str:
     """
-    Normalize a URL or domain into a bare hostname.
+    Extracts the hostname from a URL.
     """
-    if not url_or_domain:
-        return ""
+    parsed = urlparse(url)
+    return parsed.hostname or url
 
-    if url_or_domain.startswith("http://") or url_or_domain.startswith("https://"):
-        parsed = urlparse(url_or_domain)
-        return parsed.hostname or url_or_domain
-
-    return url_or_domain.replace("/", "").strip()
-
-
-def inspect_ssl(domain: str) -> dict:
+# -----------------------------
+# SSL Inspection
+# -----------------------------
+def inspect_ssl(domain: str, port: int = 443) -> Dict[str, Optional[str]]:
     """
-    Inspect SSL certificate details for a given domain.
-    Returns a dict with validity + expiry metadata.
+    Returns SSL status and expiry date for a domain.
     """
-    result = {
-        "domain": domain,
-        "valid": False,
-        "expires_at": None,
-        "days_remaining": None,
-        "issuer": None,
-        "error": None,
-        "last_checked_at": datetime.utcnow().isoformat()
-    }
-
     try:
-        ctx = ssl.create_default_context()
-        with ctx.wrap_socket(socket.socket(), server_hostname=domain) as s:
-            s.settimeout(6)
-            s.connect((domain, 443))
-            cert = s.getpeercert()
-
-        not_after = cert.get("notAfter")
-        if not not_after:
-            raise Exception("Certificate missing expiry date")
-
-        expires_at = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z")
-        days_remaining = (expires_at - datetime.utcnow()).days
-
-        issuer = None
-        if "issuer" in cert:
-            issuer = " ".join([x[0][1] for x in cert["issuer"]])
-
-        result.update({
-            "valid": True,
-            "expires_at": expires_at.isoformat(),
-            "days_remaining": days_remaining,
-            "issuer": issuer
-        })
-
-    except Exception as e:
-        result["error"] = str(e)
-
-    return result
+        context = ssl.create_default_context()
+        with socket.create_connection((domain, port), timeout=5) as sock:
+            with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                cert = ssock.getpeercert()
+                expiry_date = datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
+                update_ssl_observation(domain, ssl_status="valid", expiry_date=expiry_date.isoformat())
+                return {
+                    "domain": domain,
+                    "ssl_status": "valid",
+                    "expiry_date": expiry_date.isoformat()
+                }
+    except Exception:
+        # Mark invalid SSL in the state
+        update_ssl_observation(domain, ssl_status="invalid")
+        return {
+            "domain": domain,
+            "ssl_status": "invalid",
+            "expiry_date": None
+        }
