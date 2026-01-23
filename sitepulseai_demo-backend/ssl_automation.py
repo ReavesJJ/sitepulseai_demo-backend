@@ -1,7 +1,8 @@
 # ssl_automation.py
 # ssl_automation.py
 from fastapi import APIRouter
-from ssl_utils import normalize_domain, check_ssl_validity_and_expiry
+from ssl_utils import normalize_domain, inspect_ssl
+
 from ssl_state import update_ssl_state
 
 router = APIRouter(prefix="/ssl", tags=["SSL Automation"])
@@ -9,7 +10,8 @@ router = APIRouter(prefix="/ssl", tags=["SSL Automation"])
 @router.get("/state")
 def get_ssl_state(domain: str):
     clean_domain = normalize_domain(domain)
-    ssl_info = check_ssl_validity_and_expiry(clean_domain)
+    ssl_info = inspect_ssl(domain)
+
 
     update_ssl_state(
         domain=clean_domain,

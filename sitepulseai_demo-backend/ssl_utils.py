@@ -7,69 +7,59 @@ from urllib.parse import urlparse
 
 def normalize_domain(url_or_domain: str) -> str:
     """
-    Accepts full URLs or bare domains and returns a clean hostname.
+    Normalize a URL or domain into a bare hostname.
     """
-    parsed = urlparse(url_or_domain)
-    return parsed.hostname or url_or_domain.replace("https://", "").replace("http://", "").split("/")[0]
+    if not url_or_domain:
+        return ""
+
+    if url_or_domain.startswith("http://") or url_or_domain.startswith("https://"):
+        parsed = urlparse(url_or_domain)
+        return parsed.hostname or url_or_domain
+
+    return url_or_domain.replace("/", "").strip()
 
 
-def fetch_ssl_certificate(domain: str) -> dict:
+def inspect_ssl(domain: str) -> dict:
     """
-    Fetch raw SSL certificate details for a domain.
+    Inspect SSL certificate details for a given domain.
+    Returns a dict with validity + expiry metadata.
     """
-    ctx = ssl.create_default_context()
-    with ctx.wrap_socket(socket.socket(), server_hostname=domain) as sock:
-        sock.settimeout(6)
-        sock.connect((domain, 443))
-        cert = sock.getpeercert()
-
-    return cert
-
-
-def parse_certificate(cert: dict) -> dict:
-    """
-    Extract issuer, expiry date, and compute days remaining.
-    """
-    not_after_str = cert.get("notAfter")
-    expires_at = datetime.strptime(not_after_str, "%b %d %H:%M:%S %Y %Z")
-
-    issuer_parts = cert.get("issuer", [])
-    issuer = " ".join("=".join(x) for part in issuer_parts for x in part)
-
-    days_remaining = (expires_at - datetime.utcnow()).days
-
-    return {
-        "issuer": issuer,
-        "expires_at": expires_at.isoformat(),
-        "days_remaining": days_remaining,
-        "ssl_valid": days_remaining > 0
+    result = {
+        "domain": domain,
+        "valid": False,
+        "expires_at": None,
+        "days_remaining": None,
+        "issuer": None,
+        "error": None,
+        "last_checked_at": datetime.utcnow().isoformat()
     }
 
-
-def inspect_ssl(domain_or_url: str) -> dict:
-    """
-    Canonical SSL inspection entrypoint.
-    Returns a structured SSL status object.
-    """
-    domain = normalize_domain(domain_or_url)
-
     try:
-        cert = fetch_ssl_certificate(domain)
-        parsed = parse_certificate(cert)
+        ctx = ssl.create_default_context()
+        with ctx.wrap_socket(socket.socket(), server_hostname=domain) as s:
+            s.settimeout(6)
+            s.connect((domain, 443))
+            cert = s.getpeercert()
 
-        return {
-            "domain": domain,
-            "status": "valid" if parsed["ssl_valid"] else "expired",
-            **parsed
-        }
+        not_after = cert.get("notAfter")
+        if not not_after:
+            raise Exception("Certificate missing expiry date")
+
+        expires_at = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z")
+        days_remaining = (expires_at - datetime.utcnow()).days
+
+        issuer = None
+        if "issuer" in cert:
+            issuer = " ".join([x[0][1] for x in cert["issuer"]])
+
+        result.update({
+            "valid": True,
+            "expires_at": expires_at.isoformat(),
+            "days_remaining": days_remaining,
+            "issuer": issuer
+        })
 
     except Exception as e:
-        return {
-            "domain": domain,
-            "status": "error",
-            "error": str(e),
-            "ssl_valid": False,
-            "issuer": None,
-            "expires_at": None,
-            "days_remaining": None
-        }
+        result["error"] = str(e)
+
+    return result
