@@ -1,150 +1,151 @@
-# ssl_automation.py
-from datetime import datetime, timedelta
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter
+from typing import Dict, Any
 
 from ssl_utils import normalize_domain, inspect_ssl
 from ssl_state import (
     get_ssl_state,
     set_renewal_mode,
     mark_assisted_renewal,
-    update_ssl_observation
+    update_ssl_observation,
+    can_attempt_repair,
+    mark_repair_attempt,
+    mark_repair_success,
+    mark_repair_failure,
 )
 
-router = APIRouter(
-    prefix="/ssl",
-    tags=["SSL Automation"]
-)
-
-# -----------------------------
-# Configuration (Phase 2A Stub)
-# -----------------------------
-EXPIRY_WARNING_DAYS = 14
-AUTO_RENEW_THRESHOLD_DAYS = 5
+router = APIRouter(prefix="/ssl", tags=["SSL Automation"])
 
 
 # -----------------------------
-# Core Observation Logic
+# Core Autonomous SSL Engine
 # -----------------------------
-def observe_ssl(domain: str) -> dict:
+
+def evaluate_and_repair_ssl(domain: str) -> Dict[str, Any]:
     """
-    Pull live SSL data, persist observation into agent memory,
-    and return the merged state.
+    Deterministic SSL inspection + autonomous repair decision engine.
+    Safe to call repeatedly. Enforces retry + cooldown + escalation rules.
     """
-    clean_domain = normalize_domain(domain)
 
-    try:
-        ssl_data = inspect_ssl(clean_domain)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"SSL निरीक्षण failed: {str(e)}")
+    domain = normalize_domain(domain)
+    state = get_ssl_state(domain)
 
-    expires_at = ssl_data.get("expires_at")
-    days_remaining = ssl_data.get("days_remaining")
-    issuer = ssl_data.get("issuer")
-    ssl_valid = ssl_data.get("valid", False)
+    # 1) Inspect live SSL state
+    ssl_info = inspect_ssl(domain)
 
-    update_ssl_observation(
-        domain=clean_domain,
-        ssl_valid=ssl_valid,
-        issuer=issuer,
-        expires_at=expires_at,
-        days_remaining=days_remaining
-    )
+    expiry_date = ssl_info.get("expiry_date")
+    status = ssl_info.get("status")  # healthy | expiring | expired
 
-    state = get_ssl_state(clean_domain)
+    # 2) Update observation in state store
+    update_ssl_observation(domain, expiry_date, status)
 
-    # Policy signals
-    state["warning"] = (
-        days_remaining is not None and days_remaining <= EXPIRY_WARNING_DAYS
-    )
+    # 3) If healthy → nothing to do
+    if status == "healthy":
+        return {
+            "domain": domain,
+            "action": "none",
+            "status": "healthy",
+            "state": state,
+        }
 
-    state["auto_renew_due"] = (
-        days_remaining is not None and days_remaining <= AUTO_RENEW_THRESHOLD_DAYS
-    )
+    # 4) Expiring / Expired → attempt autonomous repair if allowed
+    if status in ("expiring", "expired"):
 
-    return state
+        if not can_attempt_repair(domain):
+            mark_assisted_renewal(
+                domain,
+                reason="Autonomous repair disabled, cooldown active, or retry limit reached",
+            )
+
+            return {
+                "domain": domain,
+                "action": "assisted_required",
+                "status": status,
+                "state": get_ssl_state(domain),
+            }
+
+        # 5) Mark repair attempt (idempotent-safe)
+        mark_repair_attempt(domain)
+
+        try:
+            # --------------------------------------------------
+            # PLACEHOLDER: real ACME / certbot logic goes here
+            # --------------------------------------------------
+            # Example later:
+            # success = run_certbot_renewal(domain)
+            success = False  # intentionally False for Phase 2A
+
+            if success:
+                mark_repair_success(domain)
+
+                return {
+                    "domain": domain,
+                    "action": "repaired",
+                    "status": "healthy",
+                    "state": get_ssl_state(domain),
+                }
+
+            raise RuntimeError("Autonomous renewal command failed")
+
+        except Exception as e:
+            mark_repair_failure(domain, str(e))
+
+            return {
+                "domain": domain,
+                "action": "repair_failed",
+                "status": status,
+                "error": str(e),
+                "state": get_ssl_state(domain),
+            }
+
+    # 6) Fallback safety net (should never be hit)
+    return {
+        "domain": domain,
+        "action": "noop",
+        "status": status,
+        "state": state,
+        "warning": "Unhandled SSL status path",
+    }
 
 
 # -----------------------------
-# Stub Autonomous Renewal
+# FastAPI Endpoints
 # -----------------------------
-def stub_auto_renew(domain: str) -> dict:
+
+@router.get("/status/{domain}")
+def ssl_status(domain: str) -> Dict[str, Any]:
     """
-    Phase 2A stub: simulate SSL renewal without certbot.
+    Read-only: returns current SSL state machine snapshot.
     """
-    clean_domain = normalize_domain(domain)
+    domain = normalize_domain(domain)
+    state = get_ssl_state(domain)
 
-    # Simulate a successful renewal event
-    now = datetime.utcnow()
-    fake_expiry = now + timedelta(days=90)
-
-    update_ssl_observation(
-        domain=clean_domain,
-        ssl_valid=True,
-        issuer="Stub-CA",
-        expires_at=fake_expiry.isoformat(),
-        days_remaining=90
-    )
-
-    state = get_ssl_state(clean_domain)
-    state["last_auto_renewed_at"] = now.isoformat()
-    state["renewal_note"] = "Stub auto-renew executed (Phase 2A)"
-
-    return state
+    return {
+        "domain": domain,
+        "state": state,
+    }
 
 
-# -----------------------------
-# API Endpoints
-# -----------------------------
-@router.get("/observe")
-def observe_endpoint(domain: str = Query(...)):
+@router.post("/evaluate/{domain}")
+def ssl_evaluate(domain: str) -> Dict[str, Any]:
     """
-    Observe SSL state, persist it, and return agent view.
+    Triggers inspection + autonomous repair logic once.
+    Safe to call from UI, cron, or agent loop.
     """
-    return observe_ssl(domain)
+    domain = normalize_domain(domain)
+    result = evaluate_and_repair_ssl(domain)
+    return result
 
 
-@router.get("/state")
-def get_state_endpoint(domain: str = Query(...)):
+@router.post("/mode/{domain}/{mode}")
+def set_mode(domain: str, mode: str) -> Dict[str, Any]:
     """
-    Return current SSL agent memory for a domain.
+    Manually override renewal mode: autonomous | assisted | frozen
     """
-    clean_domain = normalize_domain(domain)
-    return get_ssl_state(clean_domain)
+    domain = normalize_domain(domain)
+    set_renewal_mode(domain, mode)
 
-
-@router.post("/enable-assisted")
-def enable_assisted_endpoint(domain: str = Query(...)):
-    """
-    Switch domain into assisted renewal mode.
-    """
-    clean_domain = normalize_domain(domain)
-    return set_renewal_mode(clean_domain, "assisted")
-
-
-@router.post("/assisted-renew")
-def assisted_renew_endpoint(domain: str = Query(...)):
-    """
-    Simulate a human-approved renewal.
-    """
-    clean_domain = normalize_domain(domain)
-    mark_assisted_renewal(clean_domain)
-    return stub_auto_renew(clean_domain)
-
-
-@router.post("/auto-renew-stub")
-def auto_renew_stub_endpoint(domain: str = Query(...)):
-    """
-    Phase 2A autonomous renewal stub endpoint.
-    """
-    clean_domain = normalize_domain(domain)
-
-    state = get_ssl_state(clean_domain)
-    mode = state.get("renewal_mode", "monitor_only")
-
-    if mode != "autonomous":
-        raise HTTPException(
-            status_code=403,
-            detail="Autonomous renewal not enabled for this domain."
-        )
-
-    return stub_auto_renew(clean_domain)
+    return {
+        "domain": domain,
+        "renewal_mode": mode,
+        "state": get_ssl_state(domain),
+    }
