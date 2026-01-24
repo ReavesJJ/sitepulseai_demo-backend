@@ -1,58 +1,135 @@
 # ssl_state.py
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict
+
+# In-memory persistence (Phase 2A)
+_SSL_STATE_DB: Dict[str, dict] = {}
+
 
 # -----------------------------
-# In-memory SSL state store
+# Internal Helpers
 # -----------------------------
-_ssl_store: Dict[str, Dict] = {}
+
+def _get_or_create_domain_state(domain: str) -> dict:
+    domain = domain.lower()
+
+    if domain not in _SSL_STATE_DB:
+        _SSL_STATE_DB[domain] = {
+            "domain": domain,
+            "renewal_mode": "monitor_only",  # monitor_only | assisted | autonomous
+            "observations": [],
+            "repair_attempts": [],
+            "last_observed_at": None,
+            "last_known_expiry": None,
+            "last_known_days_remaining": None,
+            "last_repair_status": None,
+            "last_repair_at": None,
+        }
+
+    return _SSL_STATE_DB[domain]
+
+
+def _persist_state(domain: str, state: dict):
+    _SSL_STATE_DB[domain.lower()] = state
+
 
 # -----------------------------
-# Functions
+# Read APIs
 # -----------------------------
-def get_ssl_state(domain: str) -> Dict:
-    """
-    Returns current SSL state for a domain.
-    """
-    domain_data = _ssl_store.get(domain, {})
-    return {
-        "domain": domain,
-        "ssl_status": domain_data.get("ssl_status", "unknown"),
-        "last_checked_at": domain_data.get("last_checked_at"),
-        "expiry_date": domain_data.get("expiry_date"),
-        "renewal_mode": domain_data.get("renewal_mode", "monitor_only"),
-        "assisted_renewed_at": domain_data.get("assisted_renewed_at"),
-    }
 
-def update_ssl_observation(domain: str, ssl_status: str, expiry_date: Optional[str] = None):
-    """
-    Updates SSL observation for a domain.
-    """
-    now = datetime.utcnow().isoformat()
-    domain_data = _ssl_store.get(domain, {})
-    domain_data.update({
-        "ssl_status": ssl_status,
-        "last_checked_at": now,
-        "expiry_date": expiry_date or domain_data.get("expiry_date"),
-    })
-    _ssl_store[domain] = domain_data
-    return domain_data
+def get_ssl_state(domain: str) -> dict:
+    state = _get_or_create_domain_state(domain)
+    return state
 
-def set_renewal_mode(domain: str, mode: str):
-    """
-    Sets the SSL renewal mode: 'monitor_only' or 'assisted'.
-    """
-    domain_data = _ssl_store.get(domain, {})
-    domain_data["renewal_mode"] = mode
-    _ssl_store[domain] = domain_data
+
+# -----------------------------
+# Mode Control
+# -----------------------------
+
+def set_renewal_mode(domain: str, mode: str) -> dict:
+    if mode not in ("monitor_only", "assisted", "autonomous"):
+        raise ValueError("Invalid renewal mode")
+
+    state = _get_or_create_domain_state(domain)
+    state["renewal_mode"] = mode
+    _persist_state(domain, state)
+
     return {"domain": domain, "renewal_mode": mode}
 
-def mark_assisted_renewal(domain: str):
+
+def mark_assisted_renewal(domain: str) -> dict:
+    state = _get_or_create_domain_state(domain)
+
+    state["last_repair_status"] = "approved"
+    state["last_repair_at"] = datetime.utcnow().isoformat()
+
+    _persist_state(domain, state)
+
+    return {"status": "approved", "domain": domain}
+
+
+# -----------------------------
+# Observation Logging
+# -----------------------------
+
+def update_ssl_observation(
+    domain: str,
+    observation_type: str,
+    details: str = "",
+):
+    state = _get_or_create_domain_state(domain)
+
+    obs = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "type": observation_type,
+        "details": details,
+    }
+
+    state["observations"].append(obs)
+    state["last_observed_at"] = obs["timestamp"]
+
+    _persist_state(domain, state)
+
+    return {"status": "logged", "observation": obs}
+
+
+# -----------------------------
+# Repair Attempt Logging
+# -----------------------------
+
+def update_ssl_repair_attempt(
+    domain: str,
+    status: str,
+    reason: str = None,
+    error: str = None,
+    expiry_date: str = None,
+    days_remaining: int = None,
+):
     """
-    Marks that assisted SSL renewal has been approved/executed.
+    Persist the outcome or status of an SSL repair attempt.
     """
-    now = datetime.utcnow().isoformat()
-    domain_data = _ssl_store.get(domain, {})
-    domain_data["assisted_renewed_at"] = now
-    _ssl_store[domain] = domain_data
-    return {"domain": domain, "assisted_renewed_at": now}
+    state = _get_or_create_domain_state(domain)
+
+    attempt = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "status": status,
+        "reason": reason,
+        "error": error,
+        "expiry_date": expiry_date,
+        "days_remaining": days_remaining,
+    }
+
+    state["repair_attempts"].append(attempt)
+
+    state["last_repair_status"] = status
+    state["last_repair_at"] = attempt["timestamp"]
+
+    if expiry_date:
+        state["last_known_expiry"] = expiry_date
+
+    if days_remaining is not None:
+        state["last_known_days_remaining"] = days_remaining
+
+    _persist_state(domain, state)
+
+    return {"status": "logged", "attempt": attempt}
