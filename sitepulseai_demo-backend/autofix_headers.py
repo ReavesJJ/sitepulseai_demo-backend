@@ -1,15 +1,16 @@
-# autofix_headers.py
+## autofix_headers.py
 from datetime import datetime
 
-
 def fix_missing_security_headers(site_url: str):
-    # Placeholder: real implementation will patch Nginx/Apache configs
+    """
+    Phase 3 Step 3 – Simulated HTTP security header injection
+    In production, modify Nginx/Apache configs or use server APIs.
+    """
     result = {
         "fix_type": "security_headers",
         "site": site_url,
         "status": "simulated_applied",
-        "message": "Security headers configuration would be applied here.",
-        "applied_at": datetime.utcnow().isoformat()
+        "message": f"Security headers would be applied for {site_url}",
+        "executed_at": datetime.utcnow().isoformat()
     }
-
     return result
