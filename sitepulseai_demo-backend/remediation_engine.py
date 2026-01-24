@@ -1,6 +1,7 @@
-
-from remediation_engine import REMEDIATION_RULES
+# remediation_engine.py
 from datetime import datetime
+from remediation_rules import REMEDIATION_RULES
+
 
 def generate_remediation(vuln_id: str, site_url: str, evidence: dict):
     rule = REMEDIATION_RULES.get(vuln_id)
@@ -28,4 +29,3 @@ def generate_remediation(vuln_id: str, site_url: str, evidence: dict):
     }
 
     return remediation
-
