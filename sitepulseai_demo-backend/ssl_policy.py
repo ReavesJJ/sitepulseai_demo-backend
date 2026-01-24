@@ -1,67 +1,86 @@
 # ssl_policy.py
 from datetime import datetime, timedelta
-from typing import Tuple, Optional
-from ssl_state import get_ssl_state
+from typing import Dict
 
+from ssl_state import (
+    get_ssl_state,
+    record_policy_decision,
+)
 
-REPAIR_EXPIRY_THRESHOLD_DAYS = 30
-REPAIR_COOLDOWN_HOURS = 24
-FAILURE_LOCKOUT_HOURS = 48
+MAX_ATTEMPTS_24H = 3
+COOLDOWN_MINUTES = 30
 
-
-def evaluate_ssl_repair_policy(domain: str) -> Tuple[bool, str]:
+def evaluate_ssl_repair_policy(domain: str, severity: str = "CRITICAL") -> Dict:
     """
-    Returns:
-      (allowed: bool, reason: str)
+    Returns a decision dict:
+    {
+        allowed: bool,
+        reason: str,
+        mode: str
+    }
     """
 
     state = get_ssl_state(domain)
 
-    if not state:
-        return False, "No SSL state available for domain"
-
-    mode = state.get("renewal_mode", "monitor_only")
-    days_remaining = state.get("days_remaining")
-    last_attempt = state.get("last_repair_attempt_at")
-    last_status = state.get("last_repair_status")
-    approved = state.get("assisted_approved", False)
+    mode = state.get("renewal_mode", "auto")
+    attempts = state.get("repair_attempts", [])
+    last_repair_ts = state.get("last_repair_ts")
 
     now = datetime.utcnow()
 
-    # Rule 1 — Mode gate
-    if mode == "monitor_only":
-        return False, "Repair blocked: domain in monitor_only mode"
+    # 1) Mode rule
+    if mode in ("manual", "locked"):
+        decision = {
+            "allowed": False,
+            "reason": f"Repair blocked: mode={mode}",
+            "mode": mode,
+        }
+        record_policy_decision(domain, decision)
+        return decision
 
-    if mode == "assisted" and not approved:
-        return False, "Repair blocked: awaiting human approval"
+    # 2) Retry safety rule (24h window)
+    last_24h_attempts = [
+        a for a in attempts
+        if datetime.fromisoformat(a["timestamp"]) > now - timedelta(hours=24)
+    ]
 
-    # Rule 2 — Expiry threshold
-    if days_remaining is None:
-        return False, "Repair blocked: unknown certificate expiry"
+    if len(last_24h_attempts) >= MAX_ATTEMPTS_24H:
+        decision = {
+            "allowed": False,
+            "reason": "Too many repair attempts in last 24h",
+            "mode": mode,
+        }
+        record_policy_decision(domain, decision)
+        return decision
 
-    if days_remaining > REPAIR_EXPIRY_THRESHOLD_DAYS:
-        return False, f"Repair blocked: {days_remaining} days remaining exceeds threshold"
+    # 3) Cooldown rule
+    if last_repair_ts:
+        last_repair = datetime.fromisoformat(last_repair_ts)
+        if now - last_repair < timedelta(minutes=COOLDOWN_MINUTES):
+            decision = {
+                "allowed": False,
+                "reason": "Cooldown window active",
+                "mode": mode,
+            }
+            record_policy_decision(domain, decision)
+            return decision
 
-    # Rule 3 — Cooldown window
-    if last_attempt:
-        last_attempt_dt = _parse_iso(last_attempt)
-        if last_attempt_dt and now - last_attempt_dt < timedelta(hours=REPAIR_COOLDOWN_HOURS):
-            return False, "Repair blocked: cooldown window active"
+    # 4) Severity rule
+    if mode == "auto" and severity not in ("CRITICAL", "HIGH"):
+        decision = {
+            "allowed": False,
+            "reason": f"Severity {severity} not eligible for auto-repair",
+            "mode": mode,
+        }
+        record_policy_decision(domain, decision)
+        return decision
 
-    # Rule 4 — Failure lockout
-    if last_status == "failed" and last_attempt:
-        last_attempt_dt = _parse_iso(last_attempt)
-        if last_attempt_dt and now - last_attempt_dt < timedelta(hours=FAILURE_LOCKOUT_HOURS):
-            return False, "Repair blocked: failure lockout active"
+    # Allowed
+    decision = {
+        "allowed": True,
+        "reason": "Policy allows repair",
+        "mode": mode,
+    }
 
-    # Rule 5 — Reserved for domain allow/deny lists
-    # Stubbed for now
-
-    return True, "Repair permitted by policy"
-
-
-def _parse_iso(value: Optional[str]) -> Optional[datetime]:
-    try:
-        return datetime.fromisoformat(value)
-    except Exception:
-        return None
+    record_policy_decision(domain, decision)
+    return decision
