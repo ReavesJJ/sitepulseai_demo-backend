@@ -1,62 +1,229 @@
 # ssl_state.py
-from typing import Optional, Dict
+import json
+import os
 from datetime import datetime
+from typing import Dict, Any
 
-# In-memory SSL state store
-ssl_store: Dict[str, dict] = {}
+from ssl_utils import normalize_domain
 
-def get_ssl_state(domain: str) -> dict:
-    """Retrieve current SSL state for a domain."""
-    return ssl_store.get(domain, {
-        "renewal_mode": "monitor_only",
-        "last_observation": None,
-        "last_assisted_renewal": None,
-        "consecutive_failures": 0,
-        "cooldown_until": None,
-        "repair_disabled": False,
-        "escalation_level": 0,
-    })
+STATE_FILE = "ssl_state.json"
+_STATE: Dict[str, Dict[str, Any]] = {}
 
-def set_renewal_mode(domain: str, mode: str) -> dict:
-    """Set renewal mode: monitor_only or assisted."""
-    state = ssl_store.setdefault(domain, {})
-    state["renewal_mode"] = mode
-    return state
 
-def mark_assisted_renewal(domain: str) -> dict:
-    """Mark that an assisted renewal has been approved."""
-    state = ssl_store.setdefault(domain, {})
-    state["last_assisted_renewal"] = datetime.utcnow().isoformat()
-    return state
+# -------------------------
+# Internal Helpers
+# -------------------------
 
-def update_ssl_observation(domain: str, status: str, expiry_date: Optional[str] = None) -> dict:
-    """Record latest SSL observation."""
-    state = ssl_store.setdefault(domain, {})
-    state["last_observation"] = {
-        "status": status,
-        "expiry_date": expiry_date,
-        "timestamp": datetime.utcnow().isoformat()
+def _default_state(domain: str) -> Dict[str, Any]:
+    return {
+        "domain": domain,
+        "status": "unknown",
+        "last_checked_at": None,
+        "last_observed_expiry": None,
+        "last_observed_status": None,
+
+        "renewal_mode": "auto",  # auto | assisted | manual
+
+        "repair_attempts": [],
+        "last_repair_attempt_at": None,
+        "last_repair_success_at": None,
+        "last_repair_error": None,
+
+        "retry_count": 0,
+        "next_retry_at": None,
+
+        "escalations": [],
+        "last_escalation_reason": None,
+        "last_escalation_at": None,
     }
+
+
+def _persist_state() -> None:
+    try:
+        with open(STATE_FILE, "w") as f:
+            json.dump(_STATE, f, indent=2)
+    except Exception:
+        # Never crash the backend on persistence failure
+        pass
+
+
+def _load_state() -> None:
+    global _STATE
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r") as f:
+                _STATE = json.load(f)
+        except Exception:
+            _STATE = {}
+
+
+_load_state()
+
+
+# -------------------------
+# Public Read API
+# -------------------------
+
+def get_ssl_state(domain: str) -> Dict[str, Any]:
+    domain = normalize_domain(domain)
+    state = _STATE.get(domain) or _default_state(domain)
+    _STATE[domain] = state
     return state
 
-def record_repair_attempt(domain: str, success: bool) -> dict:
-    """Track repair attempts, handle consecutive failures."""
-    state = ssl_store.setdefault(domain, {})
-    failures = state.get("consecutive_failures", 0)
 
-    if success:
-        state["consecutive_failures"] = 0
-        state["cooldown_until"] = None
-    else:
-        state["consecutive_failures"] = failures + 1
-        # Apply exponential backoff cooldown (minutes)
-        backoff = min(60 * (2 ** failures), 1440)  # max 1 day
-        state["cooldown_until"] = datetime.utcnow().timestamp() + backoff * 60
+# -------------------------
+# Observation Logging
+# -------------------------
 
-        # Escalation if failures exceed 3
-        state["escalation_level"] = state.get("escalation_level", 0)
-        if state["consecutive_failures"] > 3:
-            state["repair_disabled"] = True
-            state["escalation_level"] += 1
+def update_ssl_observation(domain: str, observation: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Log a fresh SSL observation (expiry, validity, status).
+    """
+    domain = normalize_domain(domain)
+    state = _STATE.get(domain) or _default_state(domain)
 
-    return state
+    now = datetime.utcnow().isoformat()
+
+    state["last_checked_at"] = now
+    state["last_observed_expiry"] = observation.get("expiry_date")
+    state["last_observed_status"] = observation.get("status")
+    state["status"] = observation.get("status", state["status"])
+
+    _STATE[domain] = state
+    _persist_state()
+
+    return {
+        "domain": domain,
+        "observed": True,
+        "status": state["status"],
+        "checked_at": now,
+    }
+
+
+# -------------------------
+# Renewal Mode Control
+# -------------------------
+
+def set_renewal_mode(domain: str, mode: str) -> Dict[str, Any]:
+    """
+    Set renewal mode: auto | assisted | manual
+    """
+    if mode not in {"auto", "assisted", "manual"}:
+        raise ValueError("Invalid renewal mode")
+
+    domain = normalize_domain(domain)
+    state = _STATE.get(domain) or _default_state(domain)
+
+    state["renewal_mode"] = mode
+    _STATE[domain] = state
+    _persist_state()
+
+    return {
+        "domain": domain,
+        "renewal_mode": mode,
+    }
+
+
+# -------------------------
+# Repair Attempt Tracking
+# -------------------------
+
+def record_repair_attempt(domain: str, result: str, error: str = None) -> Dict[str, Any]:
+    """
+    Record a single repair attempt outcome.
+    """
+    domain = normalize_domain(domain)
+    state = _STATE.get(domain) or _default_state(domain)
+
+    now = datetime.utcnow().isoformat()
+
+    attempt = {
+        "timestamp": now,
+        "result": result,
+        "error": error,
+    }
+
+    state["repair_attempts"].append(attempt)
+    state["last_repair_attempt_at"] = now
+    state["last_repair_error"] = error
+
+    if result == "success":
+        state["last_repair_success_at"] = now
+        state["retry_count"] = 0
+        state["next_retry_at"] = None
+        state["status"] = "healthy"
+
+    elif result == "failure":
+        state["status"] = "repair_failed"
+
+    _STATE[domain] = state
+    _persist_state()
+
+    return {
+        "domain": domain,
+        "attempt_recorded": True,
+        "result": result,
+        "timestamp": now,
+    }
+
+
+# -------------------------
+# Retry + Backoff Engine
+# -------------------------
+
+def schedule_retry(domain: str, backoff_seconds: int) -> Dict[str, Any]:
+    """
+    Schedule the next retry attempt using exponential backoff.
+    """
+    domain = normalize_domain(domain)
+    state = _STATE.get(domain) or _default_state(domain)
+
+    now = datetime.utcnow()
+    next_retry = now.timestamp() + backoff_seconds
+
+    state["retry_count"] += 1
+    state["next_retry_at"] = datetime.utcfromtimestamp(next_retry).isoformat()
+    state["status"] = "retry_scheduled"
+
+    _STATE[domain] = state
+    _persist_state()
+
+    return {
+        "domain": domain,
+        "retry_count": state["retry_count"],
+        "next_retry_at": state["next_retry_at"],
+    }
+
+
+# -------------------------
+# Escalation Logging
+# -------------------------
+
+def record_escalation(domain: str, reason: str = "unspecified") -> Dict[str, Any]:
+    """
+    Record an escalation event when automated repair fails or is blocked.
+    """
+    domain = normalize_domain(domain)
+    state = _STATE.get(domain) or _default_state(domain)
+
+    now = datetime.utcnow().isoformat()
+
+    escalation_event = {
+        "timestamp": now,
+        "reason": reason,
+    }
+
+    state["escalations"].append(escalation_event)
+    state["last_escalation_reason"] = reason
+    state["last_escalation_at"] = now
+    state["status"] = "escalated"
+
+    _STATE[domain] = state
+    _persist_state()
+
+    return {
+        "domain": domain,
+        "escalated": True,
+        "reason": reason,
+        "timestamp": now,
+    }
