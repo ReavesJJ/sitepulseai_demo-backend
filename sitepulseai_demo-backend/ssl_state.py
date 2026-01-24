@@ -22,19 +22,29 @@ def _default_state(domain: str) -> Dict[str, Any]:
         "last_observed_expiry": None,
         "last_observed_status": None,
 
+        # Renewal governance
         "renewal_mode": "auto",  # auto | assisted | manual
 
+        # Repair tracking
         "repair_attempts": [],
         "last_repair_attempt_at": None,
         "last_repair_success_at": None,
         "last_repair_error": None,
 
+        # Retry / backoff
         "retry_count": 0,
         "next_retry_at": None,
 
+        # Escalation tracking
         "escalations": [],
         "last_escalation_reason": None,
         "last_escalation_at": None,
+
+        # 🔒 Phase 3 — Policy engine tracking
+        "policy_decisions": [],
+        "last_policy_decision": None,
+        "last_policy_decision_reason": None,
+        "last_policy_decision_at": None,
     }
 
 
@@ -43,7 +53,7 @@ def _persist_state() -> None:
         with open(STATE_FILE, "w") as f:
             json.dump(_STATE, f, indent=2)
     except Exception:
-        # Never crash the backend on persistence failure
+        # Never crash backend due to persistence failure
         pass
 
 
@@ -115,6 +125,7 @@ def set_renewal_mode(domain: str, mode: str) -> Dict[str, Any]:
     state = _STATE.get(domain) or _default_state(domain)
 
     state["renewal_mode"] = mode
+
     _STATE[domain] = state
     _persist_state()
 
@@ -224,6 +235,45 @@ def record_escalation(domain: str, reason: str = "unspecified") -> Dict[str, Any
     return {
         "domain": domain,
         "escalated": True,
+        "reason": reason,
+        "timestamp": now,
+    }
+
+
+# -------------------------
+# 🔒 Phase 3 — Policy Decision Logging
+# -------------------------
+
+def record_policy_decision(domain: str, decision: str, reason: str = None) -> Dict[str, Any]:
+    """
+    Record a policy engine decision (allow, block, escalate, defer).
+    """
+    domain = normalize_domain(domain)
+    state = _STATE.get(domain) or _default_state(domain)
+
+    now = datetime.utcnow().isoformat()
+
+    decision_event = {
+        "timestamp": now,
+        "decision": decision,
+        "reason": reason,
+    }
+
+    # Forward safety for legacy states
+    if "policy_decisions" not in state:
+        state["policy_decisions"] = []
+
+    state["policy_decisions"].append(decision_event)
+    state["last_policy_decision"] = decision
+    state["last_policy_decision_reason"] = reason
+    state["last_policy_decision_at"] = now
+
+    _STATE[domain] = state
+    _persist_state()
+
+    return {
+        "domain": domain,
+        "decision": decision,
         "reason": reason,
         "timestamp": now,
     }
