@@ -10,8 +10,10 @@ from datetime import datetime
 # Existing SSL automation router
 from ssl_automation import router as ssl_router
 
-# Phase 3 — Remediation Engine
+# Phase 3 — Remediation + Persistence + Auto-Fix
 from remediation_engine import generate_remediation
+from remediation_store import load_remediation
+from autofix_engine import execute_remediation
 
 
 # -------------------------------
@@ -19,8 +21,11 @@ from remediation_engine import generate_remediation
 # -------------------------------
 app = FastAPI(
     title="SitePulseAI Backend",
-    description="Autonomous website operations agent backend. SSL automation, monitoring, vulnerability detection, and remediation.",
-    version="3.1.0"
+    description=(
+        "Autonomous website operations agent backend. "
+        "SSL automation, monitoring, vulnerability detection, remediation, and auto-fix orchestration."
+    ),
+    version="3.2.0"
 )
 
 
@@ -50,7 +55,7 @@ def root():
     return {
         "status": "ok",
         "service": "SitePulseAI Backend",
-        "version": "3.1.0",
+        "version": "3.2.0",
         "timestamp": datetime.utcnow().isoformat()
     }
 
@@ -65,7 +70,7 @@ def health_check():
 
 
 # -------------------------------
-# Phase 3 — Step 1: Remediation Engine
+# Phase 3 — Step 1: Remediation Generation
 # -------------------------------
 @app.post("/remediation/generate")
 def remediation_generate(payload: dict = Body(...)):
@@ -89,7 +94,7 @@ def remediation_generate(payload: dict = Body(...)):
 
 
 # -------------------------------
-# Phase 3 — Step 2 Placeholder (Auto-Fix)
+# Phase 3 — Step 2: Remediation Execution (Auto-Fix Skeleton)
 # -------------------------------
 @app.post("/remediation/execute")
 def remediation_execute(payload: dict = Body(...)):
@@ -101,11 +106,20 @@ def remediation_execute(payload: dict = Body(...)):
             "timestamp": datetime.utcnow().isoformat()
         }
 
-    # Placeholder for Phase 3.2
+    remediation = load_remediation(remediation_id)
+
+    if not remediation:
+        return {
+            "error": "Remediation not found",
+            "remediation_id": remediation_id,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+    result = execute_remediation(remediation)
+
     return {
-        "remediation_id": remediation_id,
-        "status": "queued",
-        "message": "Remediation execution engine not yet enabled",
+        "remediation": remediation,
+        "execution_result": result,
         "timestamp": datetime.utcnow().isoformat()
     }
 
@@ -118,6 +132,8 @@ async def startup_event():
     print("🔥 SitePulseAI Backend startup complete.")
     print("🔐 SSL Automation router loaded.")
     print("🛠️  Remediation Engine ready.")
+    print("📦 Remediation persistence layer ready.")
+    print("🤖 Auto-Fix orchestration engine ready (skeleton).")
 
 
 @app.on_event("shutdown")
