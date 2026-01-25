@@ -95,136 +95,154 @@
   </div>
 </div>
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SitePulseAI Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    .card { border: 1px solid #ccc; border-radius: 8px; padding: 15px; margin-bottom: 15px; }
+    .card h3 { margin-top: 0; }
+    .status-ok { color: green; }
+    .status-bad { color: red; }
+  </style>
+</head>
+<body>
+  <h1>SitePulseAI Dashboard</h1>
 
-<div id="ssl-renewal-flag" class="ssl-flag"></div>
+  <input id="siteInput" type="text" placeholder="Enter client website (e.g. example.com)" />
+  <button id="startBtn">Start Monitoring</button>
 
-<script type="module">
-const backendBase = "https://sitepulseai-backend.onrender.com";
+  <div id="cards">
+    <div class="card">
+      <h3>SSL Certificate</h3>
+      <p id="sslStatus">—</p>
+    </div>
 
-// -----------------------
-// Normalize domain helper
-// -----------------------
-function normalizeDomain(url) {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname;
-  } catch {
-    return url;
-  }
-}
+    <div class="card">
+      <h3>Vulnerabilities</h3>
+      <ul id="vulnList"></ul>
+    </div>
 
-// -----------------------
-// Start Monitoring
-// -----------------------
+    <div class="card">
+      <h3>Remediation Suggestions</h3>
+      <ul id="remediationList"></ul>
+    </div>
+  </div>
+
+  <script>
+const API_BASE = "https://sitepulseai-demo-backend.onrender.com"; // replace with Render URL
+
+const startBtn = document.getElementById("startBtn");
+const siteInput = document.getElementById("siteInput");
+const cardsDiv = document.getElementById("cards");
+
+startBtn.addEventListener("click", startMonitoring);
+
 async function startMonitoring() {
-  const domainInput = document.getElementById("website-url");
-  const domain = domainInput.value.trim();
-  if (!domain) return alert("Enter a valid domain.");
-
-  saveSite(domain);
-
-  // 1️⃣ Fetch summary
-  try {
-    const summaryRes = await fetch(`${backendBase}/summary?url=${encodeURIComponent(domain)}`);
-    const data = await summaryRes.json();
-
-    document.getElementById("uptime").textContent = data.uptime || "";
-    document.getElementById("response").textContent = data.response_time || "";
-    document.getElementById("seo").textContent = data.seo_status || "";
-    document.getElementById("ssl").textContent = data.ssl_status || "";
-    document.getElementById("ai-summary").textContent = data.summary || "Summary unavailable.";
-
-    // Vulnerabilities
-    const vulnEl = document.getElementById("vulnerabilities");
-    if (vulnEl) {
-      vulnEl.innerHTML = "";
-      (data.vulnerabilities || []).forEach(v => {
-        const div = document.createElement("div");
-        div.textContent = "🛡️ " + v;
-        div.className = "text-red-300";
-        vulnEl.appendChild(div);
-      });
-    }
-
-  } catch(err) {
-    console.error("Monitoring Error:", err);
-    alert("⚠️ Failed to monitor site");
+  const domain = siteInput.value.trim();
+  if (!domain) {
+    alert("Enter a website domain first.");
+    return;
   }
 
-  // 2️⃣ Track site traffic
+  startBtn.disabled = true;
+  startBtn.textContent = "Scanning...";
+
   try {
-    const trafficRes = await fetch(`${backendBase}/track-visit`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: domain })
+    // 1) Trigger baseline + full scan
+    let res = await fetch(`${API_BASE}/baselines/${domain}`, { method: "POST" });
+    if (!res.ok) throw new Error("Baseline trigger failed");
+
+    // 2) Fetch SSL state
+    const sslRes = await fetch(`${API_BASE}/ssl/${domain}`);
+    const sslData = await sslRes.json();
+
+    // 3) Fetch uptime
+    const uptimeRes = await fetch(`${API_BASE}/uptime/${domain}`);
+    const uptimeData = await uptimeRes.json();
+
+    // 4) Fetch vulnerabilities
+    const vulnRes = await fetch(`${API_BASE}/vulnerabilities/${domain}`);
+    const vulnData = await vulnRes.json();
+
+    // 5) Fetch remediation suggestions
+    const remRes = await fetch(`${API_BASE}/remediation/${domain}`);
+    const remData = await remRes.json();
+
+    // 6) Fetch risk score
+    const riskRes = await fetch(`${API_BASE}/risk/${domain}`);
+    const riskData = await riskRes.json();
+
+    renderCards({
+      ssl_status: sslData,
+      uptime: uptimeData,
+      vulnerabilities: vulnData.findings || [],
+      remediation: remData.suggestions || [],
+      risk_score: riskData.score || 0
     });
-    const trafficData = await trafficRes.json();
-    document.getElementById("site-traffic").textContent = trafficData.visits
-      ? `${trafficData.visits} total visits`
-      : "";
-  } catch(err) {
-    console.error("Site traffic fetch failed:", err);
-    document.getElementById("site-traffic").textContent = "";
-  }
 
-  // 3️⃣ Load SSL state
-  await loadSSLState(domain);
-}
-
-// -----------------------
-// SSL Functions
-// -----------------------
-async function loadSSLState(domain) {
-  const cleanDomain = normalizeDomain(domain);
-  try {
-    const res = await fetch(`${backendBase}/ssl/state?domain=${encodeURIComponent(cleanDomain)}`);
-    const data = await res.json();
-
-    document.getElementById("ssl-managed").innerText =
-      `Managed by: ${data.renewal_mode || "SitePulseAI (stub)"}`;
-
-    document.getElementById("ssl-renewed").innerText =
-      data.expires_at
-        ? `Expires at: ${new Date(data.expires_at).toLocaleString()}`
-        : "SSL has not yet been renewed.";
-
-  } catch(err) {
-    console.error("SSL state fetch failed:", err);
-    document.getElementById("ssl-managed").innerText = "SSL state unavailable";
-    document.getElementById("ssl-renewed").innerText = "";
+  } catch (err) {
+    alert(err.message || "Monitoring failed");
+  } finally {
+    startBtn.disabled = false;
+    startBtn.textContent = "Start Monitoring";
   }
 }
 
-async function enableAssisted(domain) {
-  try {
-    const res = await fetch(`${backendBase}/ssl/enable-assisted?domain=${encodeURIComponent(domain)}`, { method: "POST" });
-    const data = await res.json();
-    console.log("Enable assisted response:", data);
-    await loadSSLState(domain);
-  } catch(err) {
-    console.error("Enable assisted failed:", err);
-  }
-}
+function renderCards(baseline) {
+  cardsDiv.classList.remove("hidden");
 
-async function approveRenewal(domain) {
-  try {
-    const res = await fetch(`${backendBase}/ssl/assisted-renew?domain=${encodeURIComponent(domain)}`, { method: "POST" });
-    const data = await res.json();
-    console.log("Assisted renew response:", data);
-    await loadSSLState(domain);
-  } catch(err) {
-    console.error("Assisted renew failed:", err);
-  }
-}
+  // SSL
+  document.getElementById("sslStatus").textContent =
+    "Status: " + (baseline.ssl_status.valid ? "Valid" : "Invalid");
 
-async function dryRunSSL(domain) {
-  try {
-    const res = await fetch(`${backendBase}/ssl/dry-run?domain=${encodeURIComponent(domain)}`, { method: "POST" });
-    const data = await res.json();
-    document.getElementById("dry-run-result").innerText = data.message;
-  } catch(err) {
-    console.error("Dry-run failed:", err);
-    document.getElementById("dry-run-result").innerText = "Dry-run failed.";
+  document.getElementById("sslExpiry").textContent =
+    "Expires In: " + (baseline.ssl_status.expires_in_days ?? "—") + " days";
+
+  // Uptime
+  document.getElementById("uptimeStatus").textContent =
+    "Status: " + (baseline.uptime.status || "Unknown");
+
+  document.getElementById("responseTime").textContent =
+    "Response Time: " + (baseline.uptime.response_time_ms ?? "—") + " ms";
+
+  // Vulnerabilities
+  const vulnList = document.getElementById("vulnList");
+  vulnList.innerHTML = "";
+
+  document.getElementById("vulnCount").textContent =
+    "Issues Found: " + baseline.vulnerabilities.length;
+
+  baseline.vulnerabilities.forEach(v => {
+    const li = document.createElement("li");
+    li.textContent = v.type ? `${v.type} — ${v.severity}` : v;
+    vulnList.appendChild(li);
+  });
+
+  // Risk
+  document.getElementById("riskScore").textContent =
+    "Score: " + baseline.risk_score;
+
+  let level = "Low";
+  if (baseline.risk_score > 6) level = "High";
+  else if (baseline.risk_score > 3) level = "Medium";
+
+  document.getElementById("riskLevel").textContent =
+    "Level: " + level;
+
+  // Remediation
+  const remList = document.getElementById("remediationList");
+  if (remList) {
+    remList.innerHTML = "";
+    baseline.remediation.forEach(r => {
+      const li = document.createElement("li");
+      li.textContent = r;
+      remList.appendChild(li);
+    });
   }
 }
 </script>
+</body>
+</html>
