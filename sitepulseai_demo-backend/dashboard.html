@@ -96,119 +96,163 @@
 </div>
 
 
+<script>
+const API_BASE = "https://sitepulseai-demo-backend.onrender.com"; // Replace with your Render backend URL
 
-  <script>
-const API_BASE = "https://https://sitepulseai-demo-backend.onrender.com"; // replace with Render URL
+let scanInterval = null;
 
-const startBtn = document.getElementById("startBtn");
-const siteInput = document.getElementById("siteInput");
-const cardsDiv = document.getElementById("cards");
-
-startBtn.addEventListener("click", startMonitoring);
-
-async function startMonitoring() {
-  const domain = siteInput.value.trim();
+// -----------------------
+// Start monitoring & auto-refresh
+// -----------------------
+async function startMonitoring(urlInput = null) {
+  const domain = urlInput || document.getElementById("website-url").value.trim();
   if (!domain) {
-    alert("Enter a website domain first.");
+    alert("Enter a website URL first.");
     return;
   }
 
+  const startBtn = document.querySelector("button[onclick='startMonitoring()']");
   startBtn.disabled = true;
   startBtn.textContent = "Scanning...";
 
   try {
-    // 1) Trigger baseline + full scan
+    // Trigger baseline + scan
     let res = await fetch(`${API_BASE}/baselines/${domain}`, { method: "POST" });
     if (!res.ok) throw new Error("Baseline trigger failed");
 
-    // 2) Fetch SSL state
-    const sslRes = await fetch(`${API_BASE}/ssl/${domain}`);
-    const sslData = await sslRes.json();
+    // Immediately render first status while scanning
+    await fetchAndRender(domain);
 
-    // 3) Fetch uptime
-    const uptimeRes = await fetch(`${API_BASE}/uptime/${domain}`);
-    const uptimeData = await uptimeRes.json();
+    // Clear any existing interval
+    if (scanInterval) clearInterval(scanInterval);
 
-    // 4) Fetch vulnerabilities
-    const vulnRes = await fetch(`${API_BASE}/vulnerabilities/${domain}`);
-    const vulnData = await vulnRes.json();
-
-    // 5) Fetch remediation suggestions
-    const remRes = await fetch(`${API_BASE}/remediation/${domain}`);
-    const remData = await remRes.json();
-
-    // 6) Fetch risk score
-    const riskRes = await fetch(`${API_BASE}/risk/${domain}`);
-    const riskData = await riskRes.json();
-
-    renderCards({
-      ssl_status: sslData,
-      uptime: uptimeData,
-      vulnerabilities: vulnData.findings || [],
-      remediation: remData.suggestions || [],
-      risk_score: riskData.score || 0
-    });
+    // Poll backend every 5 seconds until scan is complete
+    scanInterval = setInterval(async () => {
+      const done = await fetchAndRender(domain);
+      if (done) {
+        clearInterval(scanInterval);
+        startBtn.disabled = false;
+        startBtn.textContent = "Start Monitoring";
+      }
+    }, 5000);
 
   } catch (err) {
     alert(err.message || "Monitoring failed");
-  } finally {
     startBtn.disabled = false;
     startBtn.textContent = "Start Monitoring";
   }
 }
 
-function renderCards(baseline) {
-  cardsDiv.classList.remove("hidden");
+// -----------------------
+// Fetch live data and render
+// Returns true if scan completed
+// -----------------------
+async function fetchAndRender(domain) {
+  try {
+    // Fetch all live data concurrently
+    const [sslData, uptimeData, responseData, seoData, trafficData, vulnData, aiData, recData, scanStatus] = await Promise.all([
+      fetch(`${API_BASE}/ssl/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/uptime/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/response/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/seo/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/traffic/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/vulnerabilities/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/ai-summary/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/ai-recommendations/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/scan/status/${domain}`).then(r => r.json()), // backend endpoint that returns {status: "running"|"completed"}
+    ]);
 
-  // SSL
-  document.getElementById("sslStatus").textContent =
-    "Status: " + (baseline.ssl_status.valid ? "Valid" : "Invalid");
+    // Render all cards
+    document.getElementById("ssl").textContent =
+      `Status: ${sslData.valid ? "Valid" : "Invalid"} | Expires in ${sslData.expires_in_days ?? "—"} days`;
+    document.getElementById("uptime").textContent = uptimeData.status || "Unknown";
+    document.getElementById("response").textContent = responseData.ms ? `${responseData.ms} ms` : "—";
+    document.getElementById("seo").textContent = seoData.status || "Unknown";
+    document.getElementById("site-traffic").textContent = trafficData.visitors ?? "—";
+    document.getElementById("vulnerabilites").textContent = vulnData.findings?.length ?? 0;
+    document.getElementById("ai-summary").textContent = aiData.summary || "—";
 
-  document.getElementById("sslExpiry").textContent =
-    "Expires In: " + (baseline.ssl_status.expires_in_days ?? "—") + " days";
-
-  // Uptime
-  document.getElementById("uptimeStatus").textContent =
-    "Status: " + (baseline.uptime.status || "Unknown");
-
-  document.getElementById("responseTime").textContent =
-    "Response Time: " + (baseline.uptime.response_time_ms ?? "—") + " ms";
-
-  // Vulnerabilities
-  const vulnList = document.getElementById("vulnList");
-  vulnList.innerHTML = "";
-
-  document.getElementById("vulnCount").textContent =
-    "Issues Found: " + baseline.vulnerabilities.length;
-
-  baseline.vulnerabilities.forEach(v => {
-    const li = document.createElement("li");
-    li.textContent = v.type ? `${v.type} — ${v.severity}` : v;
-    vulnList.appendChild(li);
-  });
-
-  // Risk
-  document.getElementById("riskScore").textContent =
-    "Score: " + baseline.risk_score;
-
-  let level = "Low";
-  if (baseline.risk_score > 6) level = "High";
-  else if (baseline.risk_score > 3) level = "Medium";
-
-  document.getElementById("riskLevel").textContent =
-    "Level: " + level;
-
-  // Remediation
-  const remList = document.getElementById("remediationList");
-  if (remList) {
-    remList.innerHTML = "";
-    baseline.remediation.forEach(r => {
-      const li = document.createElement("li");
-      li.textContent = r;
-      remList.appendChild(li);
+    const aiSuggestionsDiv = document.getElementById("ai-suggestions");
+    aiSuggestionsDiv.innerHTML = "";
+    (recData.suggestions || []).forEach(s => {
+      const p = document.createElement("p");
+      p.textContent = s;
+      aiSuggestionsDiv.appendChild(p);
     });
+
+    // Return true if scan completed
+    return scanStatus.status === "completed";
+
+  } catch (err) {
+    console.error("Fetch/render failed:", err);
+    return false;
   }
 }
+
+// -----------------------
+// Multi-URL handling (unchanged)
+// -----------------------
+const multiUrlInput = document.getElementById("multi-url-input");
+const multiUrlList = document.getElementById("multi-url-list");
+let savedUrls = JSON.parse(localStorage.getItem("savedUrls") || "[]");
+
+function renderSavedUrls() {
+  multiUrlList.innerHTML = "";
+  savedUrls.forEach((url) => {
+    const li = document.createElement("li");
+    li.textContent = url;
+    li.className = "text-gray-200 cursor-pointer hover:text-green-400";
+    li.onclick = () => startMonitoring(url);
+    multiUrlList.appendChild(li);
+  });
+}
+renderSavedUrls();
+
+function addAdditionalURL() {
+  const url = multiUrlInput.value.trim();
+  if (!url || savedUrls.includes(url)) return;
+  savedUrls.push(url);
+  localStorage.setItem("savedUrls", JSON.stringify(savedUrls));
+  multiUrlInput.value = "";
+  renderSavedUrls();
+}
+
+function clearSavedSites() {
+  savedUrls = [];
+  localStorage.setItem("savedUrls", JSON.stringify(savedUrls));
+  renderSavedUrls();
+}
+
+// -----------------------
+// SSL buttons (unchanged)
+// -----------------------
+document.getElementById("enable-assisted").addEventListener("click", async () => {
+  const domain = document.getElementById("website-url").value.trim();
+  if (!domain) return alert("Enter a website URL first.");
+  const res = await fetch(`${API_BASE}/ssl/assisted/${domain}`, { method: "POST" });
+  alert(res.ok ? "Assisted renewal enabled" : "Failed to enable assisted renewal");
+});
+
+document.getElementById("approve-renewal").addEventListener("click", async () => {
+  const domain = document.getElementById("website-url").value.trim();
+  if (!domain) return alert("Enter a website URL first.");
+  const res = await fetch(`${API_BASE}/ssl/approve/${domain}`, { method: "POST" });
+  alert(res.ok ? "Renewal approved" : "Failed to approve renewal");
+});
+
+document.getElementById("dry-run").addEventListener("click", async () => {
+  const domain = document.getElementById("website-url").value.trim();
+  if (!domain) return alert("Enter a website URL first.");
+  const res = await fetch(`${API_BASE}/ssl/dry-run/${domain}`, { method: "POST" });
+  const resultDiv = document.getElementById("dry-run-result");
+  if (res.ok) {
+    const data = await res.json();
+    resultDiv.textContent = `Dry-run result: ${data.message}`;
+  } else {
+    resultDiv.textContent = "Dry-run failed";
+  }
+});
 </script>
+
 </body>
 </html>
