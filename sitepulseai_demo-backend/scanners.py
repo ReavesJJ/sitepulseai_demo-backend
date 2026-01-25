@@ -22,16 +22,13 @@ def check_uptime(domain: str):
         }
 
 def scan_vulnerabilities(domain: str):
-    findings = []
+    from vulnerability_checker import run_vulnerability_scan
 
-    if domain.startswith("http://"):
-        findings.append({
-            "type": "Insecure Protocol",
-            "severity": "high",
-            "description": "Site is not using HTTPS"
-        })
-
-    return findings
+    try:
+        return run_vulnerability_scan(domain)
+    except Exception as e:
+        print("VULN SCAN ERROR:", e)
+        return []
 
 def run_full_scan(domain: str):
     ssl_status = get_ssl_status(domain)

@@ -33,3 +33,14 @@ def get_ssl_status(domain: str):
 @router.get("/ssl/{domain}")
 async def ssl_status(domain: str):
     return get_ssl_status(domain)
+
+
+def get_ssl_status(domain: str):
+    from ssl_utils import fetch_ssl_certificate
+    from ssl_state import evaluate_ssl_state
+
+    cert_data = fetch_ssl_certificate(domain)
+    ssl_state = evaluate_ssl_state(domain, cert_data)
+
+    return ssl_state
+

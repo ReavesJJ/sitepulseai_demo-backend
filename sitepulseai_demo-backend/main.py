@@ -5,12 +5,14 @@ from ssl_automation import router as ssl_router
 from baseline import router as baseline_router
 
 import remediation_engine
+import remediation_store
+import autofix_engine
 import persistence
 
 app = FastAPI(
     title="SitePulseAI Backend",
     description="Autonomous website operations agent backend.",
-    version="2.2.0"
+    version="2.3.0"
 )
 
 app.add_middleware(
@@ -29,7 +31,7 @@ async def root():
     return {
         "status": "ok",
         "message": "SitePulseAI Backend running",
-        "version": "2.2.0"
+        "version": "2.3.0"
     }
 
 @app.on_event("startup")
