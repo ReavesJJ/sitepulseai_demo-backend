@@ -119,6 +119,8 @@ async def _execute_autonomous_repair(domain: str) -> Dict:
 # API endpoints
 # -----------------------------
 
+
+
 @router.get("/state")
 def ssl_state(domain: str = Query(...)):
     domain = normalize_domain(domain)
@@ -148,3 +150,5 @@ async def repair_ssl(domain: str = Query(...)):
 async def verify_ssl(domain: str = Query(...)):
     domain = normalize_domain(domain)
     return await _post_repair_verification(domain)
+
+
