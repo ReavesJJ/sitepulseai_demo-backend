@@ -12,7 +12,8 @@ async def create_baseline(domain: str):
 
         return {
             "status": "baseline_created",
-            "domain": domain
+            "domain": domain,
+            "baseline": baseline
         }
 
     except Exception as e:

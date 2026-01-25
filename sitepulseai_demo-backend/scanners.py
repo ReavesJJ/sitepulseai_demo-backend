@@ -1,4 +1,4 @@
-from ssl_automation import check_ssl
+from ssl_automation import get_ssl_status
 import time
 import requests
 
@@ -21,11 +21,9 @@ def check_uptime(domain: str):
             "response_time_ms": None
         }
 
-
 def scan_vulnerabilities(domain: str):
     findings = []
 
-    # Placeholder logic (real scanner comes later)
     if domain.startswith("http://"):
         findings.append({
             "type": "Insecure Protocol",
@@ -35,17 +33,14 @@ def scan_vulnerabilities(domain: str):
 
     return findings
 
-
 def run_full_scan(domain: str):
-    ssl_status = check_ssl(domain)
+    ssl_status = get_ssl_status(domain)
     uptime = check_uptime(domain)
     vulns = scan_vulnerabilities(domain)
 
-    baseline = {
+    return {
         "domain": domain,
         "ssl_status": ssl_status,
         "uptime": uptime,
         "vulnerabilities": vulns
     }
-
-    return baseline

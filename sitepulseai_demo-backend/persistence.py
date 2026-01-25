@@ -2,7 +2,6 @@ import json
 import os
 
 DATA_DIR = "data"
-
 os.makedirs(DATA_DIR, exist_ok=True)
 
 def save_baseline(domain: str, baseline: dict):
