@@ -94,166 +94,129 @@
     <ul id="saved-sites" class="list-none pl-0 mt-2 space-y-1 text-white-800 text-sm"></ul>
   </div>
 </div>
-
-
 <script>
-const API_BASE = "https://sitepulseai-demo-backend.onrender.com";
- // Replace with your Render backend URL
+const API_BASE = "https://sitepulseai-demo-backend.onrender.com"; // Render backend URL
 
-let scanInterval = null;
+async function startMonitoring() {
+  const siteInput = document.getElementById("website-url");
+  const domain = siteInput.value.trim().replace(/^https?:\/\//, ""); // strip protocol
 
-// -----------------------
-// Start monitoring & auto-refresh
-// -----------------------
-async function startMonitoring(urlInput = null) {
-  const domain = urlInput || document.getElementById("website-url").value.trim();
   if (!domain) {
-    alert("Enter a website URL first.");
+    alert("Enter a website domain first.");
     return;
   }
 
-  const startBtn = document.querySelector("button[onclick='startMonitoring()']");
+  const startBtn = event.target || document.querySelector("button");
   startBtn.disabled = true;
   startBtn.textContent = "Scanning...";
 
   try {
-    // Trigger baseline + scan
+    // 1️⃣ Trigger baseline + full scan
     let res = await fetch(`${API_BASE}/baselines/${domain}`, { method: "POST" });
-    if (!res.ok) throw new Error("Baseline trigger failed");
+    if (!res.ok) {
+      const errMsg = await res.text();
+      throw new Error(`Baseline trigger failed: ${errMsg}`);
+    }
 
-    // Immediately render first status while scanning
-    await fetchAndRender(domain);
+    // 2️⃣ Fetch all live data in parallel
+    const [sslRes, uptimeRes, vulnRes, riskRes, remRes, aiRes] = await Promise.all([
+      fetch(`${API_BASE}/ssl/${domain}`),
+      fetch(`${API_BASE}/uptime/${domain}`),
+      fetch(`${API_BASE}/vulnerabilities/${domain}`),
+      fetch(`${API_BASE}/risk/${domain}`),
+      fetch(`${API_BASE}/remediation/${domain}`),
+      fetch(`${API_BASE}/ai-summary/${domain}`)
+    ]);
 
-    // Clear any existing interval
-    if (scanInterval) clearInterval(scanInterval);
+    const sslData = await sslRes.json();
+    const uptimeData = await uptimeRes.json();
+    const vulnData = await vulnRes.json();
+    const riskData = await riskRes.json();
+    const remData = await remRes.json();
+    const aiData = await aiRes.json();
 
-    // Poll backend every 5 seconds until scan is complete
-    scanInterval = setInterval(async () => {
-      const done = await fetchAndRender(domain);
-      if (done) {
-        clearInterval(scanInterval);
-        startBtn.disabled = false;
-        startBtn.textContent = "Start Monitoring";
-      }
-    }, 5000);
+    // 3️⃣ Render the dashboard cards
+    renderCards({
+      ssl_status: sslData,
+      uptime: uptimeData,
+      vulnerabilities: vulnData.findings || [],
+      risk_score: riskData.score || 0,
+      remediation: remData.suggestions || [],
+      ai_summary: aiData.summary || "",
+      ai_recommendations: aiData.recommendations || []
+    });
 
   } catch (err) {
     alert(err.message || "Monitoring failed");
+    console.error(err);
+  } finally {
     startBtn.disabled = false;
     startBtn.textContent = "Start Monitoring";
   }
 }
 
-// -----------------------
-// Fetch live data and render
-// Returns true if scan completed
-// -----------------------
-async function fetchAndRender(domain) {
-  try {
-    // Fetch all live data concurrently
-    const [sslData, uptimeData, responseData, seoData, trafficData, vulnData, aiData, recData, scanStatus] = await Promise.all([
-      fetch(`${API_BASE}/ssl/${domain}`).then(r => r.json()),
-      fetch(`${API_BASE}/uptime/${domain}`).then(r => r.json()),
-      fetch(`${API_BASE}/response/${domain}`).then(r => r.json()),
-      fetch(`${API_BASE}/seo/${domain}`).then(r => r.json()),
-      fetch(`${API_BASE}/traffic/${domain}`).then(r => r.json()),
-      fetch(`${API_BASE}/vulnerabilities/${domain}`).then(r => r.json()),
-      fetch(`${API_BASE}/ai-summary/${domain}`).then(r => r.json()),
-      fetch(`${API_BASE}/ai-recommendations/${domain}`).then(r => r.json()),
-      fetch(`${API_BASE}/scan/status/${domain}`).then(r => r.json()), // backend endpoint that returns {status: "running"|"completed"}
-    ]);
+// -------------------
+// Render Cards Logic
+// -------------------
+function renderCards(data) {
+  // SSL
+  document.getElementById("ssl").textContent =
+    `Status: ${data.ssl_status.valid ? "Valid" : "Invalid"}`;
+  document.getElementById("ssl-managed").textContent =
+    `Managed: ${data.ssl_status.managed ? "Yes" : "No"}`;
+  document.getElementById("ssl-renewed").textContent =
+    `Expires in: ${data.ssl_status.expires_in_days ?? "—"} days`;
 
-    // Render all cards
-    document.getElementById("ssl").textContent =
-      `Status: ${sslData.valid ? "Valid" : "Invalid"} | Expires in ${sslData.expires_in_days ?? "—"} days`;
-    document.getElementById("uptime").textContent = uptimeData.status || "Unknown";
-    document.getElementById("response").textContent = responseData.ms ? `${responseData.ms} ms` : "—";
-    document.getElementById("seo").textContent = seoData.status || "Unknown";
-    document.getElementById("site-traffic").textContent = trafficData.visitors ?? "—";
-    document.getElementById("vulnerabilites").textContent = vulnData.findings?.length ?? 0;
-    document.getElementById("ai-summary").textContent = aiData.summary || "—";
+  // Uptime
+  document.getElementById("uptime").textContent =
+    `${data.uptime.status || "Unknown"}`;
+  document.getElementById("response").textContent =
+    `${data.uptime.response_time_ms ?? "—"} ms`;
 
-    const aiSuggestionsDiv = document.getElementById("ai-suggestions");
-    aiSuggestionsDiv.innerHTML = "";
-    (recData.suggestions || []).forEach(s => {
-      const p = document.createElement("p");
-      p.textContent = s;
-      aiSuggestionsDiv.appendChild(p);
+  // Vulnerabilities
+  const vulnElem = document.getElementById("vulnerabilites");
+  vulnElem.textContent = data.vulnerabilities.length;
+  const vulnList = document.getElementById("vulnList");
+  if (vulnList) {
+    vulnList.innerHTML = "";
+    data.vulnerabilities.forEach(v => {
+      const li = document.createElement("li");
+      li.textContent = v.type ? `${v.type} — ${v.severity}` : v;
+      vulnList.appendChild(li);
     });
+  }
 
-    // Return true if scan completed
-    return scanStatus.status === "completed";
+  // Risk
+  document.getElementById("riskScore").textContent = data.risk_score;
+  let level = "Low";
+  if (data.risk_score > 6) level = "High";
+  else if (data.risk_score > 3) level = "Medium";
+  document.getElementById("riskLevel").textContent = level;
 
-  } catch (err) {
-    console.error("Fetch/render failed:", err);
-    return false;
+  // Remediation
+  const remList = document.getElementById("remediationList");
+  if (remList) {
+    remList.innerHTML = "";
+    data.remediation.forEach(r => {
+      const li = document.createElement("li");
+      li.textContent = r;
+      remList.appendChild(li);
+    });
+  }
+
+  // AI Summary
+  const aiSummaryElem = document.getElementById("ai-summary");
+  if (aiSummaryElem) aiSummaryElem.textContent = data.ai_summary;
+
+  // AI Recommendations
+  const aiRecsElem = document.getElementById("ai-suggestions");
+  if (aiRecsElem) {
+    aiRecsElem.innerHTML = "";
+    data.ai_recommendations.forEach(r => {
+      const p = document.createElement("p");
+      p.textContent = r;
+      aiRecsElem.appendChild(p);
+    });
   }
 }
-
-// -----------------------
-// Multi-URL handling (unchanged)
-// -----------------------
-const multiUrlInput = document.getElementById("multi-url-input");
-const multiUrlList = document.getElementById("multi-url-list");
-let savedUrls = JSON.parse(localStorage.getItem("savedUrls") || "[]");
-
-function renderSavedUrls() {
-  multiUrlList.innerHTML = "";
-  savedUrls.forEach((url) => {
-    const li = document.createElement("li");
-    li.textContent = url;
-    li.className = "text-gray-200 cursor-pointer hover:text-green-400";
-    li.onclick = () => startMonitoring(url);
-    multiUrlList.appendChild(li);
-  });
-}
-renderSavedUrls();
-
-function addAdditionalURL() {
-  const url = multiUrlInput.value.trim();
-  if (!url || savedUrls.includes(url)) return;
-  savedUrls.push(url);
-  localStorage.setItem("savedUrls", JSON.stringify(savedUrls));
-  multiUrlInput.value = "";
-  renderSavedUrls();
-}
-
-function clearSavedSites() {
-  savedUrls = [];
-  localStorage.setItem("savedUrls", JSON.stringify(savedUrls));
-  renderSavedUrls();
-}
-
-// -----------------------
-// SSL buttons (unchanged)
-// -----------------------
-document.getElementById("enable-assisted").addEventListener("click", async () => {
-  const domain = document.getElementById("website-url").value.trim();
-  if (!domain) return alert("Enter a website URL first.");
-  const res = await fetch(`${API_BASE}/ssl/assisted/${domain}`, { method: "POST" });
-  alert(res.ok ? "Assisted renewal enabled" : "Failed to enable assisted renewal");
-});
-
-document.getElementById("approve-renewal").addEventListener("click", async () => {
-  const domain = document.getElementById("website-url").value.trim();
-  if (!domain) return alert("Enter a website URL first.");
-  const res = await fetch(`${API_BASE}/ssl/approve/${domain}`, { method: "POST" });
-  alert(res.ok ? "Renewal approved" : "Failed to approve renewal");
-});
-
-document.getElementById("dry-run").addEventListener("click", async () => {
-  const domain = document.getElementById("website-url").value.trim();
-  if (!domain) return alert("Enter a website URL first.");
-  const res = await fetch(`${API_BASE}/ssl/dry-run/${domain}`, { method: "POST" });
-  const resultDiv = document.getElementById("dry-run-result");
-  if (res.ok) {
-    const data = await res.json();
-    resultDiv.textContent = `Dry-run result: ${data.message}`;
-  } else {
-    resultDiv.textContent = "Dry-run failed";
-  }
-});
 </script>
-
-</body>
-</html>
