@@ -1,75 +1,51 @@
-# ssl_automation.py
-# ssl_automation.py
-
-from typing import Dict, Any
-
-from ssl_utils import fetch_ssl_certificate_info
-from ssl_state import update_ssl_state, can_attempt_repair
+from fastapi import APIRouter
+from ssl_utils import get_ssl_certificate
+from ssl_state import update_ssl_state, can_attempt_repair, record_policy_decision
 from ssl_policy import evaluate_ssl_policy
 from certbot_adapter import attempt_ssl_repair
 
+router = APIRouter(prefix="/ssl", tags=["ssl"])
 
-def run_ssl_automation(domain: str) -> Dict[str, Any]:
-    """
-    Main SSL automation pipeline:
-    - Fetch SSL certificate info
-    - Evaluate policy compliance
-    - Attempt repair if needed
-    - Persist updated SSL state
-    """
 
-    result = {
+def check_ssl(domain: str) -> dict:
+    """
+    Core SSL inspection logic used by scanners and baseline engine.
+    """
+    ssl_data = get_ssl_certificate(domain)
+
+    policy_decision = evaluate_ssl_policy(domain, ssl_data)
+    record_policy_decision(domain, policy_decision)
+
+    repair_attempted = False
+    repair_result = None
+
+    if not policy_decision.get("policy_compliant"):
+        if can_attempt_repair(domain):
+            repair_attempted = True
+            repair_result = attempt_ssl_repair(domain, dry_run=True)
+
+            update_ssl_state(domain, {
+                "repair_attempted": True,
+                "repair_result": repair_result
+            })
+
+    update_ssl_state(domain, {
+        "ssl_data": ssl_data,
+        "policy": policy_decision
+    })
+
+    return {
         "domain": domain,
-        "ssl_valid": False,
-        "expires_in_days": None,
-        "issuer": None,
-        "policy_compliant": False,
-        "repair_attempted": False,
-        "repair_success": False,
-        "error": None,
+        "ssl_data": ssl_data,
+        "policy": policy_decision,
+        "repair_attempted": repair_attempted,
+        "repair_result": repair_result
     }
 
-    try:
-        # 1. Fetch SSL certificate info
-        cert_info = fetch_ssl_certificate_info(domain)
 
-        if not cert_info or cert_info.get("error"):
-            result["error"] = cert_info.get("error") or "Unable to fetch SSL certificate"
-            update_ssl_state(domain, result)
-            return result
-
-        result["ssl_valid"] = cert_info.get("valid", False)
-        result["expires_in_days"] = cert_info.get("expires_in_days")
-        result["issuer"] = cert_info.get("issuer")
-
-        # 2. Evaluate SSL policy compliance
-        policy_result = evaluate_ssl_policy(cert_info)
-        result["policy_compliant"] = policy_result.get("compliant", False)
-
-        # 3. Attempt repair if needed
-        if not result["policy_compliant"] and can_attempt_repair(domain):
-            result["repair_attempted"] = True
-
-            repair_result = attempt_ssl_repair(domain)
-            result["repair_success"] = repair_result.get("success", False)
-
-            # Re-fetch cert after repair attempt
-            if result["repair_success"]:
-                cert_info = fetch_ssl_certificate_info(domain)
-
-                if not cert_info.get("error"):
-                    result["ssl_valid"] = cert_info.get("valid", False)
-                    result["expires_in_days"] = cert_info.get("expires_in_days")
-                    result["issuer"] = cert_info.get("issuer")
-
-                    policy_result = evaluate_ssl_policy(cert_info)
-                    result["policy_compliant"] = policy_result.get("compliant", False)
-
-        # 4. Persist final SSL state
-        update_ssl_state(domain, result)
-        return result
-
-    except Exception as e:
-        result["error"] = str(e)
-        update_ssl_state(domain, result)
-        return result
+@router.get("/{domain}")
+def get_ssl_status(domain: str):
+    """
+    HTTP endpoint for dashboard and API consumers.
+    """
+    return check_ssl(domain)
