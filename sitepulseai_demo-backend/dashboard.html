@@ -94,64 +94,62 @@
     <ul id="saved-sites" class="list-none pl-0 mt-2 space-y-1 text-white-800 text-sm"></ul>
   </div>
 </div>
-<script>
-const API_BASE = "https://sitepulseai-demo-backend.onrender.com"; // Render backend URL
 
-async function startMonitoring() {
+<script>
+const API_BASE = "https://sitepulseai-demo-backend.onrender.com";
+
+async function startMonitoring(event) {
   const siteInput = document.getElementById("website-url");
-  const domain = siteInput.value.trim().replace(/^https?:\/\//, ""); // strip protocol
+  if (!siteInput) {
+    alert("Website input field not found.");
+    return;
+  }
+
+  let domain = siteInput.value.trim();
+  domain = domain.replace(/^https?:\/\//, "").replace(/\/+$/, "");
 
   if (!domain) {
     alert("Enter a website domain first.");
     return;
   }
 
-  const startBtn = event.target || document.querySelector("button");
-  startBtn.disabled = true;
-  startBtn.textContent = "Scanning...";
+  const startBtn =
+    (event && event.target) || document.querySelector("#startBtn") || document.querySelector("button");
+
+  if (startBtn) {
+    startBtn.disabled = true;
+    startBtn.textContent = "Scanning...";
+  }
 
   try {
-    // 1️⃣ Trigger baseline + full scan
-    let res = await fetch(`${API_BASE}/baselines/${domain}`, { method: "POST" });
-    if (!res.ok) {
-      const errMsg = await res.text();
-      throw new Error(`Baseline trigger failed: ${errMsg}`);
-    }
-
-    // 2️⃣ Fetch all live data in parallel
-    const [sslRes, uptimeRes, vulnRes, riskRes, remRes, aiRes] = await Promise.all([
-      fetch(`${API_BASE}/ssl/${domain}`),
-      fetch(`${API_BASE}/uptime/${domain}`),
-      fetch(`${API_BASE}/vulnerabilities/${domain}`),
-      fetch(`${API_BASE}/risk/${domain}`),
-      fetch(`${API_BASE}/remediation/${domain}`),
-      fetch(`${API_BASE}/ai-summary/${domain}`)
-    ]);
-
-    const sslData = await sslRes.json();
-    const uptimeData = await uptimeRes.json();
-    const vulnData = await vulnRes.json();
-    const riskData = await riskRes.json();
-    const remData = await remRes.json();
-    const aiData = await aiRes.json();
-
-    // 3️⃣ Render the dashboard cards
-    renderCards({
-      ssl_status: sslData,
-      uptime: uptimeData,
-      vulnerabilities: vulnData.findings || [],
-      risk_score: riskData.score || 0,
-      remediation: remData.suggestions || [],
-      ai_summary: aiData.summary || "",
-      ai_recommendations: aiData.recommendations || []
+    // 1) Trigger baseline + scan
+    const res = await fetch(`${API_BASE}/baselines/${domain}`, {
+      method: "POST"
     });
 
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Baseline trigger failed: ${errText}`);
+    }
+
+    // 2) Read canonical baseline payload
+    const baselineData = await res.json();
+
+    if (!baselineData || typeof baselineData !== "object") {
+      throw new Error("Invalid baseline payload returned from server.");
+    }
+
+    // 3) Render dashboard
+    renderCards(baselineData);
+
   } catch (err) {
-    alert(err.message || "Monitoring failed");
-    console.error(err);
+    console.error("Monitoring error:", err);
+    alert(err.message || "Monitoring failed.");
   } finally {
-    startBtn.disabled = false;
-    startBtn.textContent = "Start Monitoring";
+    if (startBtn) {
+      startBtn.disabled = false;
+      startBtn.textContent = "Start Monitoring";
+    }
   }
 }
 
@@ -159,64 +157,132 @@ async function startMonitoring() {
 // Render Cards Logic
 // -------------------
 function renderCards(data) {
-  // SSL
-  document.getElementById("ssl").textContent =
-    `Status: ${data.ssl_status.valid ? "Valid" : "Invalid"}`;
-  document.getElementById("ssl-managed").textContent =
-    `Managed: ${data.ssl_status.managed ? "Yes" : "No"}`;
-  document.getElementById("ssl-renewed").textContent =
-    `Expires in: ${data.ssl_status.expires_in_days ?? "—"} days`;
+  if (!data) return;
 
-  // Uptime
-  document.getElementById("uptime").textContent =
-    `${data.uptime.status || "Unknown"}`;
-  document.getElementById("response").textContent =
-    `${data.uptime.response_time_ms ?? "—"} ms`;
+  // ---------- SSL ----------
+  const ssl = data.ssl || {};
 
-  // Vulnerabilities
+  const sslElem = document.getElementById("ssl");
+  if (sslElem) {
+    sslElem.textContent = `Status: ${ssl.valid ? "Valid" : "Invalid"}`;
+  }
+
+  const sslManagedElem = document.getElementById("ssl-managed");
+  if (sslManagedElem) {
+    sslManagedElem.textContent = `Managed: ${ssl.managed ? "Yes" : "No"}`;
+  }
+
+  const sslExpiresElem = document.getElementById("ssl-renewed");
+  if (sslExpiresElem) {
+    sslExpiresElem.textContent =
+      `Expires in: ${ssl.expires_in_days ?? "—"} days`;
+  }
+
+  // ---------- Uptime ----------
+  const uptime = data.uptime || {};
+
+  const uptimeElem = document.getElementById("uptime");
+  if (uptimeElem) {
+    uptimeElem.textContent = uptime.status || "Unknown";
+  }
+
+  const responseElem = document.getElementById("response");
+  if (responseElem) {
+    responseElem.textContent =
+      `${uptime.response_time_ms ?? "—"} ms`;
+  }
+
+  // ---------- Vulnerabilities ----------
+  const vulns = Array.isArray(data.vulnerabilities)
+    ? data.vulnerabilities
+    : [];
+
   const vulnElem = document.getElementById("vulnerabilites");
-  vulnElem.textContent = data.vulnerabilities.length;
+  if (vulnElem) {
+    vulnElem.textContent = vulns.length;
+  }
+
   const vulnList = document.getElementById("vulnList");
   if (vulnList) {
     vulnList.innerHTML = "";
-    data.vulnerabilities.forEach(v => {
+    vulns.forEach(v => {
       const li = document.createElement("li");
-      li.textContent = v.type ? `${v.type} — ${v.severity}` : v;
+      li.textContent =
+        v.type && v.severity
+          ? `${v.type} — ${v.severity}`
+          : JSON.stringify(v);
       vulnList.appendChild(li);
     });
   }
 
-  // Risk
-  document.getElementById("riskScore").textContent = data.risk_score;
-  let level = "Low";
-  if (data.risk_score > 6) level = "High";
-  else if (data.risk_score > 3) level = "Medium";
-  document.getElementById("riskLevel").textContent = level;
+  // ---------- Risk (derived locally) ----------
+  const riskScore =
+    vulns.length >= 5 ? 8 :
+    vulns.length >= 3 ? 5 :
+    vulns.length >= 1 ? 2 : 0;
 
-  // Remediation
+  const riskScoreElem = document.getElementById("riskScore");
+  if (riskScoreElem) {
+    riskScoreElem.textContent = riskScore;
+  }
+
+  let level = "Low";
+  if (riskScore > 6) level = "High";
+  else if (riskScore > 3) level = "Medium";
+
+  const riskLevelElem = document.getElementById("riskLevel");
+  if (riskLevelElem) {
+    riskLevelElem.textContent = level;
+  }
+
+  // ---------- Remediation ----------
+  const remediation = Array.isArray(data.remediation)
+    ? data.remediation
+    : [];
+
   const remList = document.getElementById("remediationList");
   if (remList) {
     remList.innerHTML = "";
-    data.remediation.forEach(r => {
+    remediation.forEach(r => {
       const li = document.createElement("li");
       li.textContent = r;
       remList.appendChild(li);
     });
   }
 
-  // AI Summary
-  const aiSummaryElem = document.getElementById("ai-summary");
-  if (aiSummaryElem) aiSummaryElem.textContent = data.ai_summary;
+  // ---------- SEO ----------
+  const seo = data.seo || {};
 
-  // AI Recommendations
+  const seoElem = document.getElementById("seoScore");
+  if (seoElem) {
+    seoElem.textContent =
+      seo.score ?? seo.status ?? "Not scanned";
+  }
+
+  // ---------- Traffic ----------
+  const traffic = data.traffic || {};
+
+  const trafficElem = document.getElementById("siteTraffic");
+  if (trafficElem) {
+    trafficElem.textContent =
+      traffic.visitors_30d ?? traffic.status ?? "Not connected";
+  }
+
+  // ---------- AI Summary (placeholder) ----------
+  const aiSummaryElem = document.getElementById("ai-summary");
+  if (aiSummaryElem) {
+    aiSummaryElem.textContent =
+      "AI insights will appear here once analysis is enabled.";
+  }
+
+  // ---------- AI Recommendations (placeholder) ----------
   const aiRecsElem = document.getElementById("ai-suggestions");
   if (aiRecsElem) {
     aiRecsElem.innerHTML = "";
-    data.ai_recommendations.forEach(r => {
-      const p = document.createElement("p");
-      p.textContent = r;
-      aiRecsElem.appendChild(p);
-    });
+    const p = document.createElement("p");
+    p.textContent =
+      "Automated recommendations will populate after remediation logic is activated.";
+    aiRecsElem.appendChild(p);
   }
 }
 </script>
