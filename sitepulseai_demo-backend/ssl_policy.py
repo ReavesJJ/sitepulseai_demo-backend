@@ -7,6 +7,50 @@ from ssl_state import (
     record_policy_decision,
 )
 
+from datetime import datetime
+
+def evaluate_ssl_policy(domain: str, ssl_data: dict) -> dict:
+    """
+    Evaluate SSL certificate data against SitePulseAI security policy.
+    Returns a structured compliance decision.
+    """
+
+    reasons = []
+    policy_level = "strict"
+    compliant = True
+
+    if not ssl_data:
+        compliant = False
+        reasons.append("No SSL certificate data available.")
+    else:
+        if not ssl_data.get("valid"):
+            compliant = False
+            reasons.append("SSL certificate is invalid.")
+
+        expires_in_days = ssl_data.get("expires_in_days")
+        if expires_in_days is None:
+            compliant = False
+            reasons.append("SSL expiration date missing.")
+        elif expires_in_days < 7:
+            compliant = False
+            reasons.append("SSL certificate expires in less than 7 days.")
+        elif expires_in_days < 30:
+            reasons.append("SSL certificate expires in less than 30 days.")
+
+        issuer = ssl_data.get("issuer", "").lower()
+        if "let's encrypt" not in issuer and "digicert" not in issuer and "globalsign" not in issuer:
+            reasons.append("SSL issuer is not in trusted CA list.")
+
+    return {
+        "domain": domain,
+        "policy_compliant": compliant,
+        "policy_level": policy_level,
+        "policy_reasons": reasons,
+        "evaluated_at": datetime.utcnow().isoformat(),
+    }
+
+
+
 MAX_ATTEMPTS_24H = 3
 COOLDOWN_MINUTES = 30
 
