@@ -1,6 +1,56 @@
 # certbot_adapter.py
 import subprocess
+import subprocess
 from datetime import datetime
+
+def attempt_ssl_repair(domain: str, dry_run: bool = False) -> dict:
+    """
+    Attempt to repair or renew SSL certificate using Certbot.
+    This is a controlled adapter used by the SSL automation layer.
+    """
+
+    command = [
+        "certbot",
+        "certonly",
+        "--standalone",
+        "-d", domain,
+        "--non-interactive",
+        "--agree-tos",
+        "--email", "admin@" + domain
+    ]
+
+    if dry_run:
+        command.append("--dry-run")
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+
+        success = result.returncode == 0
+
+        return {
+            "domain": domain,
+            "attempted_at": datetime.utcnow().isoformat(),
+            "dry_run": dry_run,
+            "success": success,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "return_code": result.returncode,
+        }
+
+    except Exception as e:
+        return {
+            "domain": domain,
+            "attempted_at": datetime.utcnow().isoformat(),
+            "dry_run": dry_run,
+            "success": False,
+            "error": str(e),
+        }
+
 
 
 def certbot_dry_run(domain: str):
