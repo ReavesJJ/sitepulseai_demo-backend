@@ -62,3 +62,55 @@ def inspect_ssl(domain: str) -> dict:
         result["error"] = str(e)
 
     return result
+
+
+# ssl_utils.py
+
+import ssl
+import socket
+from datetime import datetime
+from typing import Dict, Any
+
+
+def fetch_ssl_certificate_info(domain: str) -> Dict[str, Any]:
+    """
+    Fetch SSL certificate details for a domain.
+    Returns a normalized dict used across the platform.
+    """
+
+    context = ssl.create_default_context()
+    result = {
+        "valid": False,
+        "expires_in_days": None,
+        "issuer": None,
+        "not_after": None,
+        "error": None,
+    }
+
+    try:
+        with socket.create_connection((domain, 443), timeout=10) as sock:
+            with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                cert = ssock.getpeercert()
+
+        not_after_str = cert.get("notAfter")
+        not_after = datetime.strptime(not_after_str, "%b %d %H:%M:%S %Y %Z")
+        expires_in_days = (not_after - datetime.utcnow()).days
+
+        issuer_parts = cert.get("issuer", [])
+        issuer = ", ".join("=".join(x) for part in issuer_parts for x in part)
+
+        result.update(
+            {
+                "valid": expires_in_days > 0,
+                "expires_in_days": expires_in_days,
+                "issuer": issuer,
+                "not_after": not_after_str,
+            }
+        )
+
+        return result
+
+    except Exception as e:
+        result["error"] = str(e)
+        return result
+
