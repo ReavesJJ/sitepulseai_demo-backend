@@ -114,3 +114,44 @@ def fetch_ssl_certificate_info(domain: str) -> Dict[str, Any]:
         result["error"] = str(e)
         return result
 
+
+import ssl
+import socket
+from datetime import datetime
+
+def get_ssl_certificate(domain: str) -> dict:
+    """
+    Fetch SSL certificate details for a domain.
+    Returns structured certificate metadata for policy + state layers.
+    """
+
+    context = ssl.create_default_context()
+
+    try:
+        with socket.create_connection((domain, 443), timeout=10) as sock:
+            with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                cert = ssock.getpeercert()
+
+        not_after = cert.get("notAfter")
+        expires_at = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z")
+        expires_in_days = (expires_at - datetime.utcnow()).days
+
+        issuer = " ".join(x[0][1] for x in cert.get("issuer", []))
+        subject = " ".join(x[0][1] for x in cert.get("subject", []))
+
+        return {
+            "domain": domain,
+            "valid": True,
+            "issuer": issuer,
+            "subject": subject,
+            "expires_at": expires_at.isoformat(),
+            "expires_in_days": expires_in_days,
+            "raw": cert,
+        }
+
+    except Exception as e:
+        return {
+            "domain": domain,
+            "valid": False,
+            "error": str(e),
+        }
