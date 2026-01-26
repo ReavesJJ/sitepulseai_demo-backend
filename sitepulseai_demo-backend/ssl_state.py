@@ -55,3 +55,21 @@ def can_attempt_repair(domain: str) -> bool:
         return False
 
     return True
+
+
+def record_policy_decision(domain: str, policy_result: dict) -> None:
+    """
+    Persist the latest SSL policy compliance decision for a domain.
+    """
+
+    state = _SSL_STATE_STORE.get(domain, {})
+
+    state.update({
+        "policy_compliant": policy_result.get("policy_compliant"),
+        "policy_level": policy_result.get("policy_level"),
+        "policy_reasons": policy_result.get("policy_reasons"),
+        "policy_checked_at": datetime.utcnow().isoformat(),
+    })
+
+    _SSL_STATE_STORE[domain] = state
+
