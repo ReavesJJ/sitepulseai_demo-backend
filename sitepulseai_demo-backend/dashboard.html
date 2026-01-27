@@ -98,53 +98,32 @@
 <script>
 const API_BASE = "https://sitepulseai-demo-backend.onrender.com";
 
-async function startMonitoring(event) {
+// ------------------------
+// Entry point (button)
+// ------------------------
+async function startMonitoring() {
   const siteInput = document.getElementById("website-url");
-  if (!siteInput) {
-    alert("Website input field not found.");
-    return;
+  if (!siteInput) return alert("Website input not found.");
+
+  let input = siteInput.value.trim();
+  if (!input) return alert("Enter a website URL.");
+
+  // Normalize URL
+  if (!input.startsWith("http")) {
+    input = "https://" + input;
   }
 
-  let domain = siteInput.value.trim();
-  domain = domain.replace(/^https?:\/\//, "").replace(/\/+$/, "");
-
-  if (!domain) {
-    alert("Enter a website domain first.");
-    return;
-  }
-
-  const startBtn =
-    (event && event.target) || document.querySelector("#startBtn") || document.querySelector("button");
-
+  const startBtn = event?.target || document.querySelector("button");
   if (startBtn) {
     startBtn.disabled = true;
     startBtn.textContent = "Scanning...";
   }
 
   try {
-    // 1) Trigger baseline + scan
-    const res = await fetch(`${API_BASE}/baselines/${domain}`, {
-      method: "POST"
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Baseline trigger failed: ${errText}`);
-    }
-
-    // 2) Read canonical baseline payload
-    const baselineData = await res.json();
-
-    if (!baselineData || typeof baselineData !== "object") {
-      throw new Error("Invalid baseline payload returned from server.");
-    }
-
-    // 3) Render dashboard
-    renderCards(baselineData);
-
+    await loadRealData(input);
   } catch (err) {
-    console.error("Monitoring error:", err);
-    alert(err.message || "Monitoring failed.");
+    console.error("Monitoring failed:", err);
+    alert("Scan failed. Backend unreachable or invalid response.");
   } finally {
     if (startBtn) {
       startBtn.disabled = false;
@@ -153,136 +132,122 @@ async function startMonitoring(event) {
   }
 }
 
-// -------------------
-// Render Cards Logic
-// -------------------
-function renderCards(data) {
-  if (!data) return;
+// ------------------------
+// Live Data Loader
+// ------------------------
+async function loadRealData(url) {
+  const domain = new URL(url).hostname;
 
-  // ---------- SSL ----------
-  const ssl = data.ssl || {};
+  const [
+    sslRes,
+    uptimeRes,
+    latencyRes,
+    vulnRes,
+    seoRes
+  ] = await Promise.all([
+    fetch(`${API_BASE}/ssl/${domain}`),
+    fetch(`${API_BASE}/uptime/${domain}`),
+    fetch(`${API_BASE}/latency/${domain}`),
+    fetch(`${API_BASE}/vulnerabilities/${domain}`),
+    fetch(`${API_BASE}/seo/${domain}`)
+  ]);
 
-  const sslElem = document.getElementById("ssl");
-  if (sslElem) {
-    sslElem.textContent = `Status: ${ssl.valid ? "Valid" : "Invalid"}`;
+  if (!sslRes.ok || !uptimeRes.ok || !latencyRes.ok || !vulnRes.ok || !seoRes.ok) {
+    throw new Error("One or more backend endpoints failed.");
   }
 
-  const sslManagedElem = document.getElementById("ssl-managed");
-  if (sslManagedElem) {
-    sslManagedElem.textContent = `Managed: ${ssl.managed ? "Yes" : "No"}`;
-  }
+  const sslRaw     = await sslRes.json();
+  const uptimeRaw = await uptimeRes.json();
+  const latencyRaw= await latencyRes.json();
+  const vulnRaw   = await vulnRes.json();
+  const seoRaw    = await seoRes.json();
 
-  const sslExpiresElem = document.getElementById("ssl-renewed");
-  if (sslExpiresElem) {
-    sslExpiresElem.textContent =
-      `Expires in: ${ssl.expires_in_days ?? "—"} days`;
-  }
+  const normalized = normalizeBackendData({
+    sslRaw,
+    uptimeRaw,
+    latencyRaw,
+    vulnRaw,
+    seoRaw
+  });
 
-  // ---------- Uptime ----------
-  const uptime = data.uptime || {};
+  renderCards(normalized);
+}
 
-  const uptimeElem = document.getElementById("uptime");
-  if (uptimeElem) {
-    uptimeElem.textContent = uptime.status || "Unknown";
-  }
+// ------------------------
+// Adapter (backend → UI)
+// ------------------------
+function normalizeBackendData(raw) {
+  const ssl = raw.sslRaw || {};
+  const uptime = raw.uptimeRaw || {};
+  const latency = raw.latencyRaw || {};
+  const vuln = raw.vulnRaw || {};
+  const seo = raw.seoRaw || {};
 
-  const responseElem = document.getElementById("response");
-  if (responseElem) {
-    responseElem.textContent =
-      `${uptime.response_time_ms ?? "—"} ms`;
-  }
+  return {
+    ssl: {
+      valid: ssl.valid === true || ssl.status === "Valid",
+      managed: false, // frozen for now
+      expires_in_days:
+        typeof ssl.expires_in_days === "number"
+          ? ssl.expires_in_days
+          : typeof ssl.days_remaining === "number"
+          ? ssl.days_remaining
+          : null
+    },
 
-  // ---------- Vulnerabilities ----------
-  const vulns = Array.isArray(data.vulnerabilities)
-    ? data.vulnerabilities
-    : [];
+    uptime: {
+      status:
+        uptime.status === "online" || uptime.status === "Online"
+          ? "Online"
+          : uptime.status === "offline" || uptime.status === "Offline"
+          ? "Offline"
+          : "Unknown",
 
-  const vulnElem = document.getElementById("vulnerabilites");
-  if (vulnElem) {
-    vulnElem.textContent = vulns.length;
-  }
+      response_time_ms:
+        typeof latency.response_time_ms === "number"
+          ? latency.response_time_ms
+          : typeof latency.latency_ms === "number"
+          ? latency.latency_ms
+          : null
+    },
 
-  const vulnList = document.getElementById("vulnList");
-  if (vulnList) {
-    vulnList.innerHTML = "";
-    vulns.forEach(v => {
-      const li = document.createElement("li");
-      li.textContent =
-        v.type && v.severity
-          ? `${v.type} — ${v.severity}`
-          : JSON.stringify(v);
-      vulnList.appendChild(li);
-    });
-  }
+    vulnerabilities: Array.isArray(vuln.findings)
+      ? vuln.findings.map(v => ({
+          type: v.type || v.name || "Issue",
+          severity: v.severity || "Medium"
+        }))
+      : Array.isArray(vuln.missing_headers)
+      ? vuln.missing_headers.map(h => ({
+          type: h,
+          severity: "Medium"
+        }))
+      : [],
 
-  // ---------- Risk (derived locally) ----------
-  const riskScore =
-    vulns.length >= 5 ? 8 :
-    vulns.length >= 3 ? 5 :
-    vulns.length >= 1 ? 2 : 0;
+    seo: {
+      score:
+        typeof seo.score === "number"
+          ? seo.score
+          : seo.title_length
+          ? Math.min(100, seo.title_length * 2)
+          : null,
 
-  const riskScoreElem = document.getElementById("riskScore");
-  if (riskScoreElem) {
-    riskScoreElem.textContent = riskScore;
-  }
+      status:
+        seo.status ||
+        (seo.meta_description_present === false
+          ? "Missing Meta Description"
+          : "OK")
+    },
 
-  let level = "Low";
-  if (riskScore > 6) level = "High";
-  else if (riskScore > 3) level = "Medium";
+    // ---- Frozen / Beta Cards ----
+    traffic: {
+      status: "Beta"
+    },
 
-  const riskLevelElem = document.getElementById("riskLevel");
-  if (riskLevelElem) {
-    riskLevelElem.textContent = level;
-  }
+    remediation: [],
 
-  // ---------- Remediation ----------
-  const remediation = Array.isArray(data.remediation)
-    ? data.remediation
-    : [];
+    ai_summary: "AI insights will appear here once analysis is enabled.",
 
-  const remList = document.getElementById("remediationList");
-  if (remList) {
-    remList.innerHTML = "";
-    remediation.forEach(r => {
-      const li = document.createElement("li");
-      li.textContent = r;
-      remList.appendChild(li);
-    });
-  }
-
-  // ---------- SEO ----------
-  const seo = data.seo || {};
-
-  const seoElem = document.getElementById("seoScore");
-  if (seoElem) {
-    seoElem.textContent =
-      seo.score ?? seo.status ?? "Not scanned";
-  }
-
-  // ---------- Traffic ----------
-  const traffic = data.traffic || {};
-
-  const trafficElem = document.getElementById("siteTraffic");
-  if (trafficElem) {
-    trafficElem.textContent =
-      traffic.visitors_30d ?? traffic.status ?? "Not connected";
-  }
-
-  // ---------- AI Summary (placeholder) ----------
-  const aiSummaryElem = document.getElementById("ai-summary");
-  if (aiSummaryElem) {
-    aiSummaryElem.textContent =
-      "AI insights will appear here once analysis is enabled.";
-  }
-
-  // ---------- AI Recommendations (placeholder) ----------
-  const aiRecsElem = document.getElementById("ai-suggestions");
-  if (aiRecsElem) {
-    aiRecsElem.innerHTML = "";
-    const p = document.createElement("p");
-    p.textContent =
-      "Automated recommendations will populate after remediation logic is activated.";
-    aiRecsElem.appendChild(p);
-  }
+    ai_recommendations: []
+  };
 }
 </script>

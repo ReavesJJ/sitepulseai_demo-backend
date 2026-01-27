@@ -49,3 +49,36 @@ def get_ssl_status(domain: str):
     HTTP endpoint for dashboard and API consumers.
     """
     return check_ssl(domain)
+
+
+from fastapi import FastAPI, Query
+from monitoring_checks import (
+    check_ssl_state,
+    check_uptime,
+    check_response_time,
+    scan_headers,
+    scan_seo
+)
+
+app = FastAPI()
+
+@app.get("/api/ssl")
+def ssl_card(domain: str = Query(...)):
+    return check_ssl_state(domain)
+
+@app.get("/api/uptime")
+def uptime_card(url: str = Query(...)):
+    return check_uptime(url)
+
+@app.get("/api/latency")
+def latency_card(url: str = Query(...)):
+    return check_response_time(url)
+
+@app.get("/api/vuln")
+def vuln_card(url: str = Query(...)):
+    return scan_headers(url)
+
+@app.get("/api/seo")
+def seo_card(url: str = Query(...)):
+    return scan_seo(url)
+
