@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Path
 from traffic_checker import get_traffic
 
 traffic_router = APIRouter(prefix="/traffic", tags=["traffic"])

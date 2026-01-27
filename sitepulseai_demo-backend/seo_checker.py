@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Path
 import requests
 from bs4 import BeautifulSoup
 
@@ -31,6 +31,6 @@ def scan_seo(url: str):
 
 
 @router.get("/{domain}")
-def seo_card(domain: str = Query(...)):
+def seo_card(domain: str = Path(...)):
     return scan_seo(domain)
 

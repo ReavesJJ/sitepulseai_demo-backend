@@ -1,6 +1,6 @@
 # uptime.py
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Path
 import time
 import requests
 
