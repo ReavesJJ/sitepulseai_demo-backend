@@ -13,6 +13,12 @@ from uptime import router as uptime_router
 
 from baseline import router as baseline_router
 
+from fastapi import FastAPI
+from vulnerabilities_checker import router as vulnerabilities_router
+
+app = FastAPI()
+
+app.include_router(vulnerabilities_router, prefix="/vulnerabilities", tags=["vulnerabilities"])
 
 
 

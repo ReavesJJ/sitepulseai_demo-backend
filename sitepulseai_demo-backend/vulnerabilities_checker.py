@@ -1,14 +1,8 @@
 from fastapi import APIRouter, Path
+from vulnerabilities import scan_headers   # <--- correct import
 
+router = APIRouter(prefix="/vulnerabilities", tags=["Vulnerabilities"])
 
-vuln_router = APIRouter(prefix="/vulnerabilities", tags=["vulnerabilities"])
-
-def scan_headers(domain):
-    # your implementation
-    pass
-
-
-@vuln_router.get("/{domain}")
-def vulnerabilities_card(domain: str):
-    findings = scan_headers(domain)
-    return {"findings": findings or []}
+@router.get("/{domain}")
+def vuln_card(domain: str = Path(..., description="Domain to scan for vulnerabilities")):
+    return scan_headers(domain)
