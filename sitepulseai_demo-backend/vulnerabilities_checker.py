@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from vulnerability_checker import scan_headers
+from vulnerabilities_checker import scan_headers
 
 vuln_router = APIRouter(prefix="/vulnerabilities", tags=["vulnerabilities"])
 

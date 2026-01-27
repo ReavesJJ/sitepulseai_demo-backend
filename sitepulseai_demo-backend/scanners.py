@@ -1,5 +1,5 @@
 from ssl_automation import get_ssl_status
-from vulnerability_checker import scan_vulnerabilities
+from vulnerabilities_checker import scan_vulnerabilities
 from uptime import check_uptime
 
 

@@ -1,20 +1,28 @@
+
+from latency import router as latency_router
+from seo_checker import router as seo_router
+from vulnerabilities_checker import router as vulnerabilities_router
+
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ssl_automation import router as ssl_router
+from uptime import router as uptime_router
+
 from baseline import router as baseline_router
-
-import remediation_engine
-import remediation_store
-import autofix_engine
-import persistence
-
 
 app = FastAPI(
     title="SitePulseAI Backend",
     description="Autonomous website operations agent backend.",
     version="2.3.0"
 )
+
+app.include_router(latency_router)
+app.include_router(vulnerabilities_router)
+app.include_router(seo_router)
+
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,9 +32,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ---- Core monitoring routers ----
 app.include_router(ssl_router)
+app.include_router(uptime_router)
+app.include_router(latency_router)
+app.include_router(vulnerabilities_router)
+app.include_router(seo_router)
 app.include_router(baseline_router)
 
+# ---- Health check ----
 @app.get("/")
 async def root():
     return {
@@ -38,29 +52,13 @@ async def root():
 @app.on_event("startup")
 async def startup_event():
     print("🔥 SitePulseAI Backend startup complete.")
-    print("🔐 SSL Automation router loaded.")
-    print("🛠️  Remediation Engine ready.")
-    print("📦 Remediation persistence layer ready.")
-    print("🤖 Auto-Fix orchestration engine ready (skeleton).")
+    print("🔐 SSL router loaded.")
+    print("⏱️  Uptime router loaded.")
+    print("📡 Latency router loaded.")
+    print("🛡️  Vulnerabilities router loaded.")
+    print("📈 SEO router loaded.")
+    print("📊 Baseline router loaded.")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     print("🛑 SitePulseAI Backend shutting down.")
-
-from fastapi import FastAPI
-
-from routers.ssl_card import ssl_router
-from routers.uptime import uptime_router, latency_router
-from routers.vulnerabilities_checker import vuln_router
-from routers.seo_checker import seo_router
-from routers.traffic_card import traffic_router
-
-app = FastAPI(title="SitePulseAI Backend", version="2.3.0")
-
-# Include routers
-app.include_router(ssl_router)
-app.include_router(uptime_router)
-app.include_router(latency_router)
-app.include_router(vuln_router)
-app.include_router(seo_router)
-app.include_router(traffic_router)
