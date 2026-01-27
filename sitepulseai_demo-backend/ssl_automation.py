@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Path
 from ssl_utils import get_ssl_certificate
 from ssl_state import update_ssl_state, can_attempt_repair, record_policy_decision
 from ssl_policy import evaluate_ssl_policy
