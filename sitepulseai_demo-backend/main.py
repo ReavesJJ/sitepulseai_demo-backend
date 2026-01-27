@@ -1,6 +1,7 @@
 
 from latency import router as latency_router
 from seo_checker import router as seo_router
+
 from vulnerabilities_checker import router as vulnerabilities_router
 
 
@@ -11,6 +12,9 @@ from ssl_automation import router as ssl_router
 from uptime import router as uptime_router
 
 from baseline import router as baseline_router
+
+
+
 
 app = FastAPI(
     title="SitePulseAI Backend",

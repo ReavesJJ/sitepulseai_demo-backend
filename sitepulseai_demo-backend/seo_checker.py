@@ -1,13 +1,36 @@
-from fastapi import APIRouter
-from seo_checker import scan_seo
+from fastapi import APIRouter, Query
+import requests
+from bs4 import BeautifulSoup
 
-seo_router = APIRouter(prefix="/seo", tags=["seo"])
+router = APIRouter(prefix="/seo", tags=["SEO"])
 
-@seo_router.get("/{domain}")
-def seo_card(domain: str):
-    seo_data = scan_seo(domain)
-    return {
-        "score": seo_data.get("score"),
-        "status": seo_data.get("status")
-    }
+
+def scan_seo(url: str):
+    try:
+        if not url.startswith("http"):
+            url = "https://" + url
+
+        res = requests.get(url, timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        title = soup.title.string.strip() if soup.title else ""
+        meta_desc = soup.find("meta", attrs={"name": "description"})
+
+        return {
+            "status": "OK",
+            "title_length": len(title),
+            "meta_description_present": meta_desc is not None,
+            "score": min(100, len(title) * 2)
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+@router.get("/{domain}")
+def seo_card(domain: str = Query(...)):
+    return scan_seo(domain)
 
