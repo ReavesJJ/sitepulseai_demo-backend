@@ -9,6 +9,7 @@ import remediation_store
 import autofix_engine
 import persistence
 
+
 app = FastAPI(
     title="SitePulseAI Backend",
     description="Autonomous website operations agent backend.",
@@ -45,3 +46,21 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     print("🛑 SitePulseAI Backend shutting down.")
+
+from fastapi import FastAPI
+
+from routers.ssl_card import ssl_router
+from routers.uptime import uptime_router, latency_router
+from routers.vulnerabilities_checker import vuln_router
+from routers.seo_checker import seo_router
+from routers.traffic_card import traffic_router
+
+app = FastAPI(title="SitePulseAI Backend", version="2.3.0")
+
+# Include routers
+app.include_router(ssl_router)
+app.include_router(uptime_router)
+app.include_router(latency_router)
+app.include_router(vuln_router)
+app.include_router(seo_router)
+app.include_router(traffic_router)

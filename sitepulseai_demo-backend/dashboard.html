@@ -96,158 +96,119 @@
 </div>
 
 <script>
-const API_BASE = "https://sitepulseai-demo-backend.onrender.com";
+const API_BASE = "https://sitepulseai-demo-backend.onrender.com"; // Render backend URL
 
-// ------------------------
-// Entry point (button)
-// ------------------------
-async function startMonitoring() {
+async function startMonitoring(event) {
   const siteInput = document.getElementById("website-url");
-  if (!siteInput) return alert("Website input not found.");
+  const domain = siteInput.value.trim().replace(/^https?:\/\//, ""); // strip protocol
 
-  let input = siteInput.value.trim();
-  if (!input) return alert("Enter a website URL.");
-
-  // Normalize URL
-  if (!input.startsWith("http")) {
-    input = "https://" + input;
+  if (!domain) {
+    alert("Enter a website domain first.");
+    return;
   }
 
   const startBtn = event?.target || document.querySelector("button");
-  if (startBtn) {
-    startBtn.disabled = true;
-    startBtn.textContent = "Scanning...";
-  }
+  startBtn.disabled = true;
+  startBtn.textContent = "Scanning...";
 
   try {
-    await loadRealData(input);
-  } catch (err) {
-    console.error("Monitoring failed:", err);
-    alert("Scan failed. Backend unreachable or invalid response.");
-  } finally {
-    if (startBtn) {
-      startBtn.disabled = false;
-      startBtn.textContent = "Start Monitoring";
+    // ---------- Trigger baseline (if needed) ----------
+    let baselineRes = await fetch(`${API_BASE}/baselines/${domain}`, { method: "POST" });
+    if (!baselineRes.ok) {
+      const errMsg = await baselineRes.text();
+      console.warn("Baseline trigger failed:", errMsg);
     }
+
+    // ---------- Fetch all live card data in parallel ----------
+    const [sslRes, uptimeRes, latencyRes, vulnRes, seoRes, trafficRes] = await Promise.all([
+      fetch(`${API_BASE}/ssl/${domain}`),
+      fetch(`${API_BASE}/uptime/${domain}`),
+      fetch(`${API_BASE}/latency/${domain}`),
+      fetch(`${API_BASE}/vulnerabilities/${domain}`),
+      fetch(`${API_BASE}/seo/${domain}`),
+      fetch(`${API_BASE}/traffic/${domain}`)
+    ]);
+
+    const sslData = await sslRes.json();
+    const uptimeData = await uptimeRes.json();
+    const latencyData = await latencyRes.json();
+    const vulnData = await vulnRes.json();
+    const seoData = await seoRes.json();
+    const trafficData = await trafficRes.json();
+
+    // ---------- Render Cards ----------
+    renderCards({
+      ssl: sslData,
+      uptime: uptimeData,
+      response: latencyData,
+      vulnerabilities: vulnData.findings || [],
+      seo: seoData,
+      traffic: trafficData,
+      ai_summary: "AI insights will appear here once analysis is enabled.",
+      ai_recommendations: ["Automated recommendations will populate after remediation logic is activated."]
+    });
+
+  } catch (err) {
+    alert(err.message || "Monitoring failed");
+    console.error(err);
+  } finally {
+    startBtn.disabled = false;
+    startBtn.textContent = "Start Monitoring";
   }
 }
 
-// ------------------------
-// Live Data Loader
-// ------------------------
-async function loadRealData(url) {
-  const domain = new URL(url).hostname;
+// ---------- Render Cards Function ----------
+function renderCards(data) {
+  if (!data) return;
 
-  const [
-    sslRes,
-    uptimeRes,
-    latencyRes,
-    vulnRes,
-    seoRes
-  ] = await Promise.all([
-    fetch(`${API_BASE}/ssl/${domain}`),
-    fetch(`${API_BASE}/uptime/${domain}`),
-    fetch(`${API_BASE}/latency/${domain}`),
-    fetch(`${API_BASE}/vulnerabilities/${domain}`),
-    fetch(`${API_BASE}/seo/${domain}`)
-  ]);
+  // SSL
+  const sslElem = document.getElementById("ssl");
+  if (sslElem) sslElem.textContent = `Status: ${data.ssl?.valid ? "Valid" : "Invalid"}`;
+  const sslManagedElem = document.getElementById("ssl-managed");
+  if (sslManagedElem) sslManagedElem.textContent = `Managed: ${data.ssl?.managed ? "Yes" : "No"}`;
+  const sslExpiresElem = document.getElementById("ssl-renewed");
+  if (sslExpiresElem) sslExpiresElem.textContent = `Expires in: ${data.ssl?.expires_in_days ?? "—"} days`;
 
-  if (!sslRes.ok || !uptimeRes.ok || !latencyRes.ok || !vulnRes.ok || !seoRes.ok) {
-    throw new Error("One or more backend endpoints failed.");
+  // Uptime
+  const uptimeElem = document.getElementById("uptime");
+  if (uptimeElem) uptimeElem.textContent = data.uptime?.status || "Unknown";
+  const responseElem = document.getElementById("response");
+  if (responseElem) responseElem.textContent = `${data.response?.response_time_ms ?? "—"} ms`;
+
+  // Vulnerabilities
+  const vulnElem = document.getElementById("vulnerabilites");
+  if (vulnElem) vulnElem.textContent = data.vulnerabilities.length;
+  const vulnList = document.getElementById("vulnList");
+  if (vulnList) {
+    vulnList.innerHTML = "";
+    data.vulnerabilities.forEach(v => {
+      const li = document.createElement("li");
+      li.textContent = v.type && v.severity ? `${v.type} — ${v.severity}` : JSON.stringify(v);
+      vulnList.appendChild(li);
+    });
   }
 
-  const sslRaw     = await sslRes.json();
-  const uptimeRaw = await uptimeRes.json();
-  const latencyRaw= await latencyRes.json();
-  const vulnRaw   = await vulnRes.json();
-  const seoRaw    = await seoRes.json();
+  // SEO
+  const seoElem = document.getElementById("seo");
+  if (seoElem) seoElem.textContent = data.seo?.score ?? data.seo?.status ?? "Not scanned";
 
-  const normalized = normalizeBackendData({
-    sslRaw,
-    uptimeRaw,
-    latencyRaw,
-    vulnRaw,
-    seoRaw
-  });
+  // Traffic
+  const trafficElem = document.getElementById("site-traffic");
+  if (trafficElem) trafficElem.textContent = data.traffic?.visitors_30d ?? data.traffic?.status ?? "Not connected";
 
-  renderCards(normalized);
-}
+  // AI Summary (placeholder)
+  const aiSummaryElem = document.getElementById("ai-summary");
+  if (aiSummaryElem) aiSummaryElem.textContent = data.ai_summary;
 
-// ------------------------
-// Adapter (backend → UI)
-// ------------------------
-function normalizeBackendData(raw) {
-  const ssl = raw.sslRaw || {};
-  const uptime = raw.uptimeRaw || {};
-  const latency = raw.latencyRaw || {};
-  const vuln = raw.vulnRaw || {};
-  const seo = raw.seoRaw || {};
-
-  return {
-    ssl: {
-      valid: ssl.valid === true || ssl.status === "Valid",
-      managed: false, // frozen for now
-      expires_in_days:
-        typeof ssl.expires_in_days === "number"
-          ? ssl.expires_in_days
-          : typeof ssl.days_remaining === "number"
-          ? ssl.days_remaining
-          : null
-    },
-
-    uptime: {
-      status:
-        uptime.status === "online" || uptime.status === "Online"
-          ? "Online"
-          : uptime.status === "offline" || uptime.status === "Offline"
-          ? "Offline"
-          : "Unknown",
-
-      response_time_ms:
-        typeof latency.response_time_ms === "number"
-          ? latency.response_time_ms
-          : typeof latency.latency_ms === "number"
-          ? latency.latency_ms
-          : null
-    },
-
-    vulnerabilities: Array.isArray(vuln.findings)
-      ? vuln.findings.map(v => ({
-          type: v.type || v.name || "Issue",
-          severity: v.severity || "Medium"
-        }))
-      : Array.isArray(vuln.missing_headers)
-      ? vuln.missing_headers.map(h => ({
-          type: h,
-          severity: "Medium"
-        }))
-      : [],
-
-    seo: {
-      score:
-        typeof seo.score === "number"
-          ? seo.score
-          : seo.title_length
-          ? Math.min(100, seo.title_length * 2)
-          : null,
-
-      status:
-        seo.status ||
-        (seo.meta_description_present === false
-          ? "Missing Meta Description"
-          : "OK")
-    },
-
-    // ---- Frozen / Beta Cards ----
-    traffic: {
-      status: "Beta"
-    },
-
-    remediation: [],
-
-    ai_summary: "AI insights will appear here once analysis is enabled.",
-
-    ai_recommendations: []
-  };
+  // AI Recommendations (placeholder)
+  const aiRecsElem = document.getElementById("ai-suggestions");
+  if (aiRecsElem) {
+    aiRecsElem.innerHTML = "";
+    data.ai_recommendations.forEach(r => {
+      const p = document.createElement("p");
+      p.textContent = r;
+      aiRecsElem.appendChild(p);
+    });
+  }
 }
 </script>

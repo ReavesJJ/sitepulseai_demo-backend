@@ -1,19 +1,36 @@
+# uptime.py
+from fastapi import APIRouter
 import requests
+import time
 
+uptime_router = APIRouter(prefix="/uptime", tags=["uptime"])
+latency_router = APIRouter(prefix="/latency", tags=["latency"])
 
-def check_uptime(domain: str):
+@uptime_router.get("/{domain}")
+def uptime_card(domain: str):
+    url = f"https://{domain}"
     try:
-        r = requests.get(f"https://{domain}", timeout=10)
+        start = time.time()
+        response = requests.get(url, timeout=10)
+        response_time = round((time.time() - start) * 1000, 2)
         return {
-            "status": "up" if r.status_code == 200 else "down",
-            "response_time_ms": int(r.elapsed.total_seconds() * 1000),
-            "status_code": r.status_code,
+            "status": "Online" if response.status_code < 500 else "Offline",
+            "response_time_ms": response_time
+        }
+    except requests.exceptions.RequestException as e:
+        return {
+            "status": "Offline",
+            "response_time_ms": None,
+            "error": str(e)
         }
 
-    except Exception as e:
-        return {
-            "status": "down",
-            "error": str(e),
-            "response_time_ms": None,
-            "status_code": None,
-        }
+@latency_router.get("/{domain}")
+def latency_card(domain: str):
+    url = f"https://{domain}"
+    try:
+        start = time.time()
+        requests.get(url, timeout=10)
+        response_time = round((time.time() - start) * 1000, 2)
+        return {"response_time_ms": response_time}
+    except:
+        return {"response_time_ms": None}
