@@ -1,36 +1,19 @@
-from fastapi import APIRouter, Path
+from fastapi import APIRouter
 import requests
 from bs4 import BeautifulSoup
 
-router = APIRouter(prefix="/seo", tags=["SEO"])
+router = APIRouter()
 
-
-def scan_seo(url: str):
+@router.get("/seo/{domain}")
+def seo_card(domain: str):
+    url = f"https://{domain}"
     try:
-        if not url.startswith("http"):
-            url = "https://" + url
-
-        res = requests.get(url, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-
-        title = soup.title.string.strip() if soup.title else ""
-        meta_desc = soup.find("meta", attrs={"name": "description"})
-
-        return {
-            "status": "OK",
-            "title_length": len(title),
-            "meta_description_present": meta_desc is not None,
-            "score": min(100, len(title) * 2)
-        }
-
-    except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        }
-
-
-@router.get("/{domain}")
-def seo_card(domain: str = Path(...)):
-    return scan_seo(domain)
-
+        r = requests.get(url, timeout=5)
+        soup = BeautifulSoup(r.text, "html.parser")
+        title_len = len(soup.title.string) if soup.title else 0
+        meta_desc = bool(soup.find("meta", attrs={"name": "description"}))
+        score = min(100, title_len * 2 + (20 if meta_desc else 0))
+        status = "OK" if meta_desc else "Missing Meta Description"
+        return {"score": score, "status": status, "title_length": title_len, "meta_description_present": meta_desc}
+    except Exception:
+        return {"score": None, "status": "Not scanned"}

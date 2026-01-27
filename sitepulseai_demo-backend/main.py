@@ -1,39 +1,35 @@
-
-from latency import router as latency_router
-from seo_checker import router as seo_router
-
-from vulnerabilities_checker import router as vulnerabilities_router
-
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+# -----------------------
+# Routers for each card
+# -----------------------
 from ssl_automation import router as ssl_router
 from uptime import router as uptime_router
-
-from baseline import router as baseline_router
-
-from fastapi import FastAPI
 from vulnerabilities_checker import router as vulnerabilities_router
+from seo_checker import router as seo_router
+from traffic_checker import router as traffic_router
 
-app = FastAPI()
+# -----------------------
+# Other engines / persistence
+# -----------------------
+import remediation_engine
+import remediation_store
+import autofix_engine
+import persistence
 
-app.include_router(vulnerabilities_router, prefix="/vulnerabilities", tags=["vulnerabilities"])
-
-
-
+# -----------------------
+# App initialization
+# -----------------------
 app = FastAPI(
     title="SitePulseAI Backend",
     description="Autonomous website operations agent backend.",
     version="2.3.0"
 )
 
-app.include_router(latency_router)
-app.include_router(vulnerabilities_router)
-app.include_router(seo_router)
-
-
-
+# -----------------------
+# Middleware
+# -----------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -42,15 +38,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---- Core monitoring routers ----
+# -----------------------
+# Include routers (clean and sequential)
+# -----------------------
 app.include_router(ssl_router)
 app.include_router(uptime_router)
-app.include_router(latency_router)
 app.include_router(vulnerabilities_router)
 app.include_router(seo_router)
-app.include_router(baseline_router)
+app.include_router(traffic_router)
 
-# ---- Health check ----
+# -----------------------
+# Root endpoint
+# -----------------------
 @app.get("/")
 async def root():
     return {
@@ -59,15 +58,20 @@ async def root():
         "version": "2.3.0"
     }
 
+# -----------------------
+# Startup / shutdown events
+# -----------------------
 @app.on_event("startup")
 async def startup_event():
     print("🔥 SitePulseAI Backend startup complete.")
-    print("🔐 SSL router loaded.")
-    print("⏱️  Uptime router loaded.")
-    print("📡 Latency router loaded.")
-    print("🛡️  Vulnerabilities router loaded.")
-    print("📈 SEO router loaded.")
-    print("📊 Baseline router loaded.")
+    print("🔐 SSL Automation router loaded.")
+    print("⚡ Uptime & Latency router loaded.")
+    print("🛡️ Vulnerabilities scanner loaded.")
+    print("📈 SEO scanner loaded.")
+    print("📊 Traffic scanner loaded.")
+    print("🛠️  Remediation Engine ready.")
+    print("📦 Persistence layer ready.")
+    print("🤖 Auto-Fix engine ready (skeleton).")
 
 @app.on_event("shutdown")
 async def shutdown_event():

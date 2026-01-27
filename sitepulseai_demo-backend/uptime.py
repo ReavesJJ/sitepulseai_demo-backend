@@ -1,29 +1,17 @@
-# uptime.py
-
-from fastapi import APIRouter, Path
-import time
+from fastapi import APIRouter
 import requests
+import time
 
 router = APIRouter()
 
 @router.get("/uptime/{domain}")
-def get_uptime(domain: str):
-    start = time.time()
+def uptime_card(domain: str):
+    url = f"https://{domain}"
     try:
-        resp = requests.get(f"https://{domain}", timeout=10)
-        elapsed = int((time.time() - start) * 1000)
-
-        return {
-            "domain": domain,
-            "status": "Online" if resp.status_code < 500 else "Degraded",
-            "response_time_ms": elapsed,
-            "status_code": resp.status_code
-        }
-
-    except Exception as e:
-        return {
-            "domain": domain,
-            "status": "Offline",
-            "response_time_ms": None,
-            "error": str(e)
-        }
+        start = time.time()
+        r = requests.get(url, timeout=5)
+        latency_ms = int((time.time() - start) * 1000)
+        status = "Online" if r.status_code < 400 else "Offline"
+        return {"status": status, "response_time_ms": latency_ms}
+    except requests.RequestException:
+        return {"status": "Offline", "response_time_ms": None}
