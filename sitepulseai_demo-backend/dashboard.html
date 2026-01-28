@@ -95,104 +95,107 @@
   </div>
 </div>
 
+
 <script>
-const API_BASE = "https://sitepulseai-demo-backend.onrender.com"; // Render backend URL
+/* ===========================
+   CONFIG
+=========================== */
+const API_BASE = "https://sitepulseai-demo-backend.onrender.com"; // replace with your backend URL
 
-// ------------------------
-// Entry point: attach button listener
-// ------------------------
-document.addEventListener("DOMContentLoaded", () => {
-  const startBtn = document.getElementById("start-btn");
-  if (startBtn) {
-    startBtn.addEventListener("click", startMonitoring);
-  }
-});
+/* ===========================
+   STATE
+=========================== */
+let activeDomain = null;
 
-// ------------------------
-// Main function
-// ------------------------
-async function startMonitoring(event) {
-  const siteInput = document.getElementById("website-url");
-  if (!siteInput) return alert("Website input not found.");
-
-  let url = siteInput.value.trim();
-  if (!url) return alert("Enter a website URL.");
-
-  // Normalize URL
-  if (!url.startsWith("http")) {
-    url = "https://" + url;
-  }
-
-  const startBtn = event?.target || document.getElementById("start-btn");
-  if (startBtn) {
-    startBtn.disabled = true;
-    startBtn.textContent = "Scanning...";
-  }
-
+/* ===========================
+   HELPERS
+=========================== */
+function normalizeDomain(input) {
   try {
-    await loadRealData(url);
-  } catch (err) {
-    console.error("Monitoring failed:", err);
-    alert("Scan failed. Backend unreachable or invalid response.");
-  } finally {
-    if (startBtn) {
-      startBtn.disabled = false;
-      startBtn.textContent = "Start Monitoring";
-    }
+    const url = input.startsWith("http")
+      ? new URL(input)
+      : new URL("https://" + input);
+    return url.hostname;
+  } catch {
+    return null;
   }
 }
 
-// ------------------------
-// Fetch and normalize backend data
-// ------------------------
+/* ===========================
+   ENTRY POINT
+=========================== */
+function startMonitoring() {
+  const input = document.getElementById("website-url").value.trim();
+  const domain = normalizeDomain(input);
 
-async function loadRealData(url) {
-  const domain = new URL(url).hostname;
-
-  const endpoints = [
-    { key: "sslRaw", path: `/ssl/${domain}` },
-    { key: "uptimeRaw", path: `/uptime/${domain}` },
-    { key: "vulnRaw", path: `/vulnerabilities/${domain}` },
-    { key: "seoRaw", path: `/seo/${domain}` }
-  ];
-
-  // Fetch all endpoints in parallel
-  const fetches = endpoints.map(e =>
-    fetch(API_BASE + e.path)
-  );
-
-  const responses = await Promise.all(fetches);
-
-  // Fail fast if any endpoint fails
-  for (let res of responses) {
-    if (!res.ok) {
-      throw new Error(
-        `Backend fetch failed: ${res.status} ${res.statusText}`
-      );
-    }
+  if (!domain) {
+    alert("Please enter a valid website URL");
+    return;
   }
 
-  const jsonData = await Promise.all(
-    responses.map(r => r.json())
-  );
+  activeDomain = domain;
+  localStorage.setItem("sitepulse_domain", domain);
+
+  // Load all metrics
+  loadAllMetrics(domain);
+}
+
+/* ===========================
+   CORE FETCH LOGIC
+=========================== */
+async function loadAllMetrics(domain) {
+  // Core endpoints
+  const endpoints = {
+    sslRaw: `/ssl/${domain}`,
+    uptimeRaw: `/uptime/${domain}`,
+    vulnRaw: `/vulnerabilities/${domain}`,
+    seoRaw: `/seo/${domain}`
+  };
 
   const rawData = {};
-  endpoints.forEach((e, idx) => {
-    rawData[e.key] = jsonData[idx];
-  });
 
-  const normalized = normalizeBackendData(rawData);
+  // Fetch SSL, Uptime, Vulnerabilities, SEO
+  try {
+    await Promise.all(
+      Object.entries(endpoints).map(async ([key, path]) => {
+        const res = await fetch(API_BASE + path);
+        if (!res.ok) throw new Error(path);
+        rawData[key] = await res.json();
+      })
+    );
+  } catch (err) {
+    console.error("Core metrics fetch failed:", err);
+    return;
+  }
+
+  // Fetch latency separately (non-blocking)
+  let responseTime = null;
+  try {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 4000); // 4s timeout
+
+    const res = await fetch(`${API_BASE}/latency/${domain}`, {
+      signal: controller.signal
+    });
+    if (res.ok) {
+      const json = await res.json();
+      responseTime = json.response_time_ms ?? null;
+    }
+  } catch {
+    console.warn("Latency fetch failed (non-blocking)");
+  }
+
+  // Normalize and render
+  const normalized = normalizeBackendData(rawData, responseTime);
   renderCards(normalized);
 }
 
-
-// ------------------------
-// Adapter: backend → UI
-// ------------------------
-function normalizeBackendData(raw) {
+/* ===========================
+   NORMALIZATION
+=========================== */
+function normalizeBackendData(raw, responseTime) {
   const ssl = raw.sslRaw || {};
   const uptime = raw.uptimeRaw || {};
-  const latency = raw.latencyRaw || {};
   const vuln = raw.vulnRaw || {};
   const seo = raw.seoRaw || {};
 
@@ -202,71 +205,62 @@ function normalizeBackendData(raw) {
       managed: ssl.managed ?? false,
       expires_in_days: ssl.expires_in_days ?? ssl.days_remaining ?? null
     },
-
     uptime: {
       status: uptime.status
         ? uptime.status.charAt(0).toUpperCase() + uptime.status.slice(1)
         : "Unknown",
-      response_time_ms: latency.response_time_ms ?? latency.latency_ms ?? null
+      response_time_ms: responseTime
     },
-
-    vulnerabilities: Array.isArray(vuln.findings)
-      ? vuln.findings.map(v => ({
-          type: v.type || v.name || "Issue",
-          severity: v.severity || "Medium"
-        }))
-      : [],
-
+    vulnerabilities: Array.isArray(vuln.findings) ? vuln.findings : [],
     seo: {
-      score: typeof seo.score === "number" ? seo.score : null,
       status: seo.status || "Not scanned"
     },
-
-    traffic: { status: "Beta" },
-
-    remediation: [],
-    ai_summary: "AI insights will appear here once analysis is enabled.",
-    ai_recommendations: []
+    traffic: { status: "Beta" }
   };
 }
 
-// ------------------------
-// Render cards
-// ------------------------
+/* ===========================
+   RENDER FUNCTION
+=========================== */
 function renderCards(data) {
   if (!data) return;
 
   // SSL
-  document.getElementById("ssl").textContent = `Status: ${data.ssl.valid ? "Valid" : "Invalid"}`;
-  document.getElementById("ssl-managed").textContent = `Managed: ${data.ssl.managed ? "Yes" : "No"}`;
-  document.getElementById("ssl-renewed").textContent = `Expires in: ${data.ssl.expires_in_days ?? "—"} days`;
+  document.getElementById("ssl").textContent =
+    `Status: ${data.ssl.valid ? "Valid" : "Invalid"}`;
+  document.getElementById("ssl-managed").textContent =
+    `Managed: ${data.ssl.managed ? "Yes" : "No"}`;
+  document.getElementById("ssl-renewed").textContent =
+    `Expires in: ${data.ssl.expires_in_days ?? "—"} days`;
 
-  // Uptime
+  // Uptime & Response Time
   document.getElementById("uptime").textContent = data.uptime.status;
-  document.getElementById("response").textContent = `${data.uptime.response_time_ms ?? "—"} ms`;
+  document.getElementById("response").textContent =
+    data.uptime.response_time_ms !== null
+      ? `${data.uptime.response_time_ms} ms`
+      : "— ms";
 
   // Vulnerabilities
-  const vulnElem = document.getElementById("vulnerabilites");
-  vulnElem.textContent = data.vulnerabilities.length;
-  const vulnList = document.getElementById("vulnList");
-  if (vulnList) {
-    vulnList.innerHTML = "";
-    data.vulnerabilities.forEach(v => {
-      const li = document.createElement("li");
-      li.textContent = `${v.type} — ${v.severity}`;
-      vulnList.appendChild(li);
-    });
-  }
+  document.getElementById("vulnerabilites").textContent =
+    data.vulnerabilities.length;
 
   // SEO
-  const seoElem = document.getElementById("seo");
-  if (seoElem) seoElem.textContent = data.seo.status;
+  document.getElementById("seo").textContent = data.seo.status;
 
   // Traffic
-  const trafficElem = document.getElementById("site-traffic");
-  if (trafficElem) trafficElem.textContent = data.traffic.status;
+  document.getElementById("site-traffic").textContent =
+    data.traffic.status;
+}
+
+/* ===========================
+   AUTO-RESTORE ON PAGE LOAD
+=========================== */
+const savedDomain = localStorage.getItem("sitepulse_domain");
+if (savedDomain) {
+  activeDomain = savedDomain;
+  loadAllMetrics(savedDomain);
 }
 </script>
- 
+
 </html>  
 </body>

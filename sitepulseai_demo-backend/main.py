@@ -9,6 +9,8 @@ from uptime import router as uptime_router
 from vulnerabilities_checker import router as vulnerabilities_router
 from seo_checker import router as seo_router
 from traffic_checker import router as traffic_router
+from latency_checker import router as latency_router
+
 
 # -----------------------
 # Other engines / persistence
@@ -46,6 +48,8 @@ app.include_router(uptime_router)
 app.include_router(vulnerabilities_router)
 app.include_router(seo_router)
 app.include_router(traffic_router)
+app.include_router(latency_router)
+
 
 # -----------------------
 # Root endpoint
