@@ -9,9 +9,14 @@ from uptime import router as uptime_router
 from vulnerabilities_checker import router as vulnerabilities_router
 from seo_checker import router as seo_router
 from traffic_checker import router as traffic_router
-# main.py or wherever your app is defined
 
-
+# -----------------------
+# Other engines / persistence
+# -----------------------
+import remediation_engine
+import remediation_store
+import autofix_engine
+import persistence
 
 # -----------------------
 # App initialization
@@ -45,12 +50,6 @@ app.include_router(traffic_router)
 # -----------------------
 # Root endpoint
 # -----------------------
-
-@app.get("/")
-def health():
-    return {"status": "SitePulseAI backend alive"}
-
-
 @app.get("/")
 async def root():
     return {
