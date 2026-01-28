@@ -10,20 +10,6 @@ from vulnerabilities_checker import router as vulnerabilities_router
 from seo_checker import router as seo_router
 from traffic_checker import router as traffic_router
 # main.py or wherever your app is defined
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-async def health_check():
-    return {
-        "status": "ok",
-        "message": "SitePulseAI Backend running",
-        "version": "2.3.0"
-    }
-
-
-
 
 
 
