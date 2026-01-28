@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Path
 import httpx
 import time
+import asyncio
 
 router = APIRouter(prefix="/latency", tags=["latency"])
 
@@ -13,13 +14,15 @@ async def latency_card(domain: str = Path(..., description="Website domain")):
         start = time.perf_counter()
 
         async with httpx.AsyncClient(
-            timeout=10.0,
+            timeout=5.0,
             follow_redirects=True
         ) as client:
-            resp = await client.get(url)
+            resp = await asyncio.wait_for(
+                client.get(url),
+                timeout=6.0
+            )
 
-        end = time.perf_counter()
-        latency_ms = round((end - start) * 1000, 2)
+        latency_ms = round((time.perf_counter() - start) * 1000, 2)
 
         return {
             "status": "ok",
@@ -29,6 +32,18 @@ async def latency_card(domain: str = Path(..., description="Website domain")):
                 "response_time_ms": latency_ms,
                 "online": resp.status_code == 200
             }
+        }
+
+    except asyncio.TimeoutError:
+        return {
+            "status": "error",
+            "scanner": "latency",
+            "domain": domain,
+            "data": {
+                "response_time_ms": None,
+                "online": False
+            },
+            "error": "Latency check timed out"
         }
 
     except Exception as e:
