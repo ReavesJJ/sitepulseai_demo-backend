@@ -1,12 +1,12 @@
 # latency.py
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Path
 import httpx
 import time
 
 router = APIRouter(prefix="/latency", tags=["latency"])
 
 @router.get("/{domain}")
-async def latency_card(domain: str = Query(..., description="Website domain")):
+async def latency_card(domain: str = Path(..., description="Website domain")):
     url = f"https://{domain}"
     try:
         start = time.perf_counter()

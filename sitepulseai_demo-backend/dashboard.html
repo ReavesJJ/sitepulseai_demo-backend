@@ -145,29 +145,36 @@ async function startMonitoring(event) {
 // ------------------------
 // Fetch and normalize backend data
 // ------------------------
+
 async function loadRealData(url) {
   const domain = new URL(url).hostname;
 
   const endpoints = [
     { key: "sslRaw", path: `/ssl/${domain}` },
     { key: "uptimeRaw", path: `/uptime/${domain}` },
-    { key: "latencyRaw", path: `/latency/${domain}` },
     { key: "vulnRaw", path: `/vulnerabilities/${domain}` },
     { key: "seoRaw", path: `/seo/${domain}` }
   ];
 
   // Fetch all endpoints in parallel
-  const fetches = endpoints.map(e => fetch(API_BASE + e.path));
+  const fetches = endpoints.map(e =>
+    fetch(API_BASE + e.path)
+  );
+
   const responses = await Promise.all(fetches);
 
-  // Check if any endpoint failed
+  // Fail fast if any endpoint fails
   for (let res of responses) {
     if (!res.ok) {
-      throw new Error(`Backend fetch failed: ${res.status} ${res.statusText}`);
+      throw new Error(
+        `Backend fetch failed: ${res.status} ${res.statusText}`
+      );
     }
   }
 
-  const jsonData = await Promise.all(responses.map(r => r.json()));
+  const jsonData = await Promise.all(
+    responses.map(r => r.json())
+  );
 
   const rawData = {};
   endpoints.forEach((e, idx) => {
@@ -177,6 +184,7 @@ async function loadRealData(url) {
   const normalized = normalizeBackendData(rawData);
   renderCards(normalized);
 }
+
 
 // ------------------------
 // Adapter: backend → UI
