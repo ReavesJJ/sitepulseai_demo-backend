@@ -4,6 +4,20 @@ import requests
 import time
 from datetime import datetime
 from bs4 import BeautifulSoup
+# monitoring_registry.py
+import time
+
+MONITORED_DOMAINS = {}
+
+def add_domain(domain: str):
+    MONITORED_DOMAINS[domain] = time.time()
+
+def remove_domain(domain: str):
+    MONITORED_DOMAINS.pop(domain, None)
+
+def get_domains():
+    return list(MONITORED_DOMAINS.keys())
+
 
 # 1) SSL CHECK
 def check_ssl_state(domain: str):

@@ -1,27 +1,19 @@
 # latency.py
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
+import httpx
 import time
-import requests
 
-router = APIRouter()
+router = APIRouter(prefix="/latency", tags=["latency"])
 
-@router.get("/latency/{domain}")
-def latency_card(domain: str):
-    url = domain if domain.startswith("http") else f"https://{domain}"
-
-    start = time.time()
+@router.get("/{domain}")
+async def latency_card(domain: str = Query(..., description="Website domain")):
+    url = f"https://{domain}"
     try:
-        r = requests.get(url, timeout=10)
-        latency_ms = int((time.time() - start) * 1000)
-
-        return {
-            "status": "ok",
-            "latency_ms": latency_ms
-        }
-
+        start = time.perf_counter()
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            resp = await client.get(url)
+        end = time.perf_counter()
+        latency_ms = round((end - start) * 1000, 2)
+        return {"domain": domain, "response_time_ms": latency_ms, "status": "Online" if resp.status_code == 200 else "Offline"}
     except Exception as e:
-        return {
-            "status": "error",
-            "latency_ms": None,
-            "error": str(e)
-        }
+        return {"domain": domain, "response_time_ms": None, "status": "Offline", "error": str(e)}

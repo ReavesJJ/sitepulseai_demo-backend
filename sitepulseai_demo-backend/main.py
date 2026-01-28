@@ -9,14 +9,23 @@ from uptime import router as uptime_router
 from vulnerabilities_checker import router as vulnerabilities_router
 from seo_checker import router as seo_router
 from traffic_checker import router as traffic_router
+# main.py or wherever your app is defined
+from fastapi import FastAPI
 
-# -----------------------
-# Other engines / persistence
-# -----------------------
-import remediation_engine
-import remediation_store
-import autofix_engine
-import persistence
+app = FastAPI()
+
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "ok",
+        "message": "SitePulseAI Backend running",
+        "version": "2.3.0"
+    }
+
+
+
+
+
 
 # -----------------------
 # App initialization
