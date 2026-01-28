@@ -127,3 +127,6 @@ def scan_seo(url: str):
         return {
             "error": str(e)
         }
+    
+
+    

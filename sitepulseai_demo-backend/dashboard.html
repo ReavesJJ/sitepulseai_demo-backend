@@ -95,71 +95,93 @@
   </div>
 </div>
 
-<script>
-const API_BASE = "https://sitepulseai-demo-backend.onrender.com";
 
-/* ---------- Utility ---------- */
-async function apiFetch(endpoint) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
+  <script>
+    const API_BASE = "https://sitepulseai-demo-backend.onrender.com";
 
-  try {
-    const res = await fetch(`${API_BASE}${endpoint}`, {
-      signal: controller.signal
-    });
+    const backendStatusEl = document.getElementById("backendStatus");
+    const monitoringStatusEl = document.getElementById("monitoringStatus");
+    const domainInput = document.getElementById("domainInput");
 
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } catch (err) {
-    console.error("API error:", err);
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
+    // ---------- Backend Health Check ----------
+    async function checkBackend() {
+      try {
+        const res = await fetch(`${API_BASE}/health`);
+        if (!res.ok) throw new Error("Non-200 response");
+        const data = await res.json();
 
-/* ---------- Card Updaters ---------- */
-function setCard(id, text, status="ok") {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.innerText = text;
-  el.className = `card ${status}`;
-}
+        backendStatusEl.textContent =
+          `Online — v${data.version || "unknown"}`;
+        backendStatusEl.className = "status ok";
+      } catch (err) {
+        backendStatusEl.textContent =
+          "Offline — backend unreachable";
+        backendStatusEl.className = "status error";
+      }
+    }
 
-/* ---------- SSL STATE ---------- */
-async function loadSSL(domain) {
-  const data = await apiFetch(`/ssl/state?domain=${domain}`);
-  if (!data) return setCard("ssl-card", "Unavailable", "error");
+    // ---------- Start Monitoring ----------
+    async function startMonitoring() {
+      const domain = domainInput.value.trim();
+      if (!domain) {
+        setStatus("Please enter a domain.", "error");
+        return;
+      }
 
-  setCard(
-    "ssl-card",
-    `SSL: ${data.state}`,
-    data.state === "VALID" ? "ok" : "warn"
-  );
-}
+      setStatus("Registering domain for monitoring...", "info");
 
-/* ---------- VULNERABILITY SCAN ---------- */
-async function loadVulnerabilities(domain) {
-  const data = await apiFetch(`/vulnerabilities/scan?domain=${domain}`);
-  if (!data) return setCard("vuln-card", "Scan failed", "error");
+      try {
+        const res = await fetch(
+          `${API_BASE}/monitoring/start?domain=${encodeURIComponent(domain)}`,
+          { method: "POST" }
+        );
 
-  const open = data.ports.open_ports.length;
-  setCard(
-    "vuln-card",
-    open === 0 ? "No vulnerabilities" : `${open} open ports`,
-    open === 0 ? "ok" : "warn"
-  );
-}
+        if (!res.ok) {
+          throw new Error("Start monitoring failed");
+        }
 
-/* ---------- INITIAL LOAD ---------- */
-function loadDashboard(domain) {
-  loadSSL(domain);
-  loadVulnerabilities(domain);
-}
+        const data = await res.json();
+        setStatus(
+          `Monitoring active for ${data.domain}. Scans will run automatically.`,
+          "ok"
+        );
+      } catch (err) {
+        setStatus("Failed to start monitoring.", "error");
+      }
+    }
 
-/* ---------- AUTO LOAD ---------- */
-document.addEventListener("DOMContentLoaded", () => {
-  const domain = localStorage.getItem("sitepulse-domain") || "example.com";
-  loadDashboard(domain);
-});
-</script>
+    // ---------- Stop Monitoring ----------
+    async function stopMonitoring() {
+      const domain = domainInput.value.trim();
+      if (!domain) {
+        setStatus("Please enter a domain.", "error");
+        return;
+      }
+
+      setStatus("Stopping monitoring...", "info");
+
+      try {
+        const res = await fetch(
+          `${API_BASE}/monitoring/stop?domain=${encodeURIComponent(domain)}`,
+          { method: "POST" }
+        );
+
+        if (!res.ok) {
+          throw new Error("Stop monitoring failed");
+        }
+
+        const data = await res.json();
+        setStatus(`Monitoring stopped for ${data.domain}.`, "ok");
+      } catch (err) {
+        setStatus("Failed to stop monitoring.", "error");
+      }
+    }
+
+    function setStatus(message, type) {
+      monitoringStatusEl.textContent = message;
+      monitoringStatusEl.className = `status ${type}`;
+    }
+
+    // Initial load
+    checkBackend();
+  </script>
