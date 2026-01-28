@@ -98,156 +98,68 @@
 <script>
 const API_BASE = "https://sitepulseai-demo-backend.onrender.com";
 
-// ------------------------
-// Entry point (button)
-// ------------------------
-async function startMonitoring() {
-  const siteInput = document.getElementById("website-url");
-  if (!siteInput) return alert("Website input not found.");
-
-  let input = siteInput.value.trim();
-  if (!input) return alert("Enter a website URL.");
-
-  // Normalize URL
-  if (!input.startsWith("http")) {
-    input = "https://" + input;
-  }
-
-  const startBtn = event?.target || document.querySelector("button");
-  if (startBtn) {
-    startBtn.disabled = true;
-    startBtn.textContent = "Scanning...";
-  }
+/* ---------- Utility ---------- */
+async function apiFetch(endpoint) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
 
   try {
-    await loadRealData(input);
+    const res = await fetch(`${API_BASE}${endpoint}`, {
+      signal: controller.signal
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
   } catch (err) {
-    console.error("Monitoring failed:", err);
-    alert("Scan failed. Backend unreachable or invalid response.");
+    console.error("API error:", err);
+    return null;
   } finally {
-    if (startBtn) {
-      startBtn.disabled = false;
-      startBtn.textContent = "Start Monitoring";
-    }
+    clearTimeout(timeout);
   }
 }
 
-// ------------------------
-// Live Data Loader
-// ------------------------
-async function loadRealData(url) {
-  const domain = new URL(url).hostname;
-
-  const [
-    sslRes,
-    uptimeRes,
-    latencyRes,
-    vulnRes,
-    seoRes
-  ] = await Promise.all([
-    fetch(`${API_BASE}/ssl/${domain}`),
-    fetch(`${API_BASE}/uptime/${domain}`),
-    fetch(`${API_BASE}/latency/${domain}`),
-    fetch(`${API_BASE}/vulnerabilities/${domain}`),
-    fetch(`${API_BASE}/seo/${domain}`)
-  ]);
-
-  if (!sslRes.ok || !uptimeRes.ok || !latencyRes.ok || !vulnRes.ok || !seoRes.ok) {
-    throw new Error("One or more backend endpoints failed.");
-  }
-
-  const sslRaw     = await sslRes.json();
-  const uptimeRaw = await uptimeRes.json();
-  const latencyRaw= await latencyRes.json();
-  const vulnRaw   = await vulnRes.json();
-  const seoRaw    = await seoRes.json();
-
-  const normalized = normalizeBackendData({
-    sslRaw,
-    uptimeRaw,
-    latencyRaw,
-    vulnRaw,
-    seoRaw
-  });
-
-  renderCards(normalized);
+/* ---------- Card Updaters ---------- */
+function setCard(id, text, status="ok") {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerText = text;
+  el.className = `card ${status}`;
 }
 
-// ------------------------
-// Adapter (backend → UI)
-// ------------------------
-function normalizeBackendData(raw) {
-  const ssl = raw.sslRaw || {};
-  const uptime = raw.uptimeRaw || {};
-  const latency = raw.latencyRaw || {};
-  const vuln = raw.vulnRaw || {};
-  const seo = raw.seoRaw || {};
+/* ---------- SSL STATE ---------- */
+async function loadSSL(domain) {
+  const data = await apiFetch(`/ssl/state?domain=${domain}`);
+  if (!data) return setCard("ssl-card", "Unavailable", "error");
 
-  return {
-    ssl: {
-      valid: ssl.valid === true || ssl.status === "Valid",
-      managed: false, // frozen for now
-      expires_in_days:
-        typeof ssl.expires_in_days === "number"
-          ? ssl.expires_in_days
-          : typeof ssl.days_remaining === "number"
-          ? ssl.days_remaining
-          : null
-    },
-
-    uptime: {
-      status:
-        uptime.status === "online" || uptime.status === "Online"
-          ? "Online"
-          : uptime.status === "offline" || uptime.status === "Offline"
-          ? "Offline"
-          : "Unknown",
-
-      response_time_ms:
-        typeof latency.response_time_ms === "number"
-          ? latency.response_time_ms
-          : typeof latency.latency_ms === "number"
-          ? latency.latency_ms
-          : null
-    },
-
-    vulnerabilities: Array.isArray(vuln.findings)
-      ? vuln.findings.map(v => ({
-          type: v.type || v.name || "Issue",
-          severity: v.severity || "Medium"
-        }))
-      : Array.isArray(vuln.missing_headers)
-      ? vuln.missing_headers.map(h => ({
-          type: h,
-          severity: "Medium"
-        }))
-      : [],
-
-    seo: {
-      score:
-        typeof seo.score === "number"
-          ? seo.score
-          : seo.title_length
-          ? Math.min(100, seo.title_length * 2)
-          : null,
-
-      status:
-        seo.status ||
-        (seo.meta_description_present === false
-          ? "Missing Meta Description"
-          : "OK")
-    },
-
-    // ---- Frozen / Beta Cards ----
-    traffic: {
-      status: "Beta"
-    },
-
-    remediation: [],
-
-    ai_summary: "AI insights will appear here once analysis is enabled.",
-
-    ai_recommendations: []
-  };
+  setCard(
+    "ssl-card",
+    `SSL: ${data.state}`,
+    data.state === "VALID" ? "ok" : "warn"
+  );
 }
+
+/* ---------- VULNERABILITY SCAN ---------- */
+async function loadVulnerabilities(domain) {
+  const data = await apiFetch(`/vulnerabilities/scan?domain=${domain}`);
+  if (!data) return setCard("vuln-card", "Scan failed", "error");
+
+  const open = data.ports.open_ports.length;
+  setCard(
+    "vuln-card",
+    open === 0 ? "No vulnerabilities" : `${open} open ports`,
+    open === 0 ? "ok" : "warn"
+  );
+}
+
+/* ---------- INITIAL LOAD ---------- */
+function loadDashboard(domain) {
+  loadSSL(domain);
+  loadVulnerabilities(domain);
+}
+
+/* ---------- AUTO LOAD ---------- */
+document.addEventListener("DOMContentLoaded", () => {
+  const domain = localStorage.getItem("sitepulse-domain") || "example.com";
+  loadDashboard(domain);
+});
 </script>

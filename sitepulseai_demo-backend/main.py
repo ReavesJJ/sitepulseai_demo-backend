@@ -50,6 +50,12 @@ app.include_router(traffic_router)
 # -----------------------
 # Root endpoint
 # -----------------------
+
+@app.get("/")
+def health():
+    return {"status": "SitePulseAI backend alive"}
+
+
 @app.get("/")
 async def root():
     return {
