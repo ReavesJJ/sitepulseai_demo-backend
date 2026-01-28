@@ -1,15 +1,13 @@
-from ssl_automation import get_ssl_status
-from vulnerabilities_checker import scan_vulnerabilities
+from ssl_automation import check_ssl_state
+from vulnerabilities_checker import scan_headers
 from uptime import check_uptime
-
-
 
 
 def run_full_scan(domain: str):
     results = {"domain": domain}
 
     print("🔐 Running SSL scan...")
-    results["ssl_status"] = get_ssl_status(domain)
+    results["ssl_status"] = check_ssl_state(domain)
     print("✅ SSL scan complete.")
 
     print("🌐 Running uptime check...")
@@ -17,7 +15,7 @@ def run_full_scan(domain: str):
     print("✅ Uptime check complete.")
 
     print("🛡️ Running vulnerability scan...")
-    results["vulnerabilities"] = scan_vulnerabilities(domain)
+    results["vulnerabilities"] = scan_headers(domain)
     print("✅ Vulnerability scan complete.")
 
     return results
