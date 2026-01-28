@@ -95,154 +95,171 @@
   </div>
 </div>
 
-<!-- At the bottom of your <body>, before </body> -->
 <script>
-const API_BASE = "https://sitepulseai-demo-backend.onrender.com";
+const API_BASE = "https://sitepulseai-demo-backend.onrender.com"; // Render backend URL
 
-const backendStatusEl = document.getElementById("backendStatus");
-const monitoringStatusEl = document.getElementById("monitoringStatus");
-const domainInput = document.getElementById("domainInput");
-const startBtn = document.querySelector("button.start");
-const stopBtn = document.querySelector("button.stop");
-
-// ---------- Utility function ----------
-async function apiFetch(endpoint) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
-
-  try {
-    const res = await fetch(`${API_BASE}${endpoint}`, {
-      signal: controller.signal
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } catch (err) {
-    console.error("API error:", err);
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-// ---------- Card Updaters ----------
-function setCard(id, text, status="ok") {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.innerText = text;
-  el.className = `card ${status}`;
-}
-
-// ---------- SSL & Vulnerability Loaders ----------
-async function loadSSL(domain) {
-  const data = await apiFetch(`/ssl/state?domain=${domain}`);
-  if (!data) return setCard("ssl-card", "Unavailable", "error");
-
-  setCard(
-    "ssl-card",
-    `SSL: ${data.state}`,
-    data.state === "VALID" ? "ok" : "warn"
-  );
-}
-
-async function loadVulnerabilities(domain) {
-  const data = await apiFetch(`/vulnerabilities/scan?domain=${domain}`);
-  if (!data) return setCard("vuln-card", "Scan failed", "error");
-
-  const open = data.ports?.open_ports?.length || 0;
-  setCard(
-    "vuln-card",
-    open === 0 ? "No vulnerabilities" : `${open} open ports`,
-    open === 0 ? "ok" : "warn"
-  );
-}
-
-// ---------- Status Helper ----------
-function setStatus(message, type) {
-  monitoringStatusEl.textContent = message;
-  monitoringStatusEl.className = `status ${type}`;
-}
-
-// ---------- Start Monitoring ----------
-async function startMonitoring() {
-  const domain = domainInput.value.trim();
-  if (!domain) {
-    setStatus("Please enter a domain.", "error");
-    return;
-  }
-
-  // Disable button and show scanning
-  startBtn.disabled = true;
-  startBtn.textContent = "Scanning...";
-  setStatus("Starting monitoring...", "info");
-
-  try {
-    // Register domain with backend
-    const res = await fetch(
-      `${API_BASE}/monitoring/start?domain=${encodeURIComponent(domain)}`,
-      { method: "POST" }
-    );
-    if (!res.ok) throw new Error("Start monitoring failed");
-
-    // Trigger immediate scan for cards
-    await loadSSL(domain);
-    await loadVulnerabilities(domain);
-
-    // Update status & button
-    setStatus(`Monitoring active for ${domain}. Scans will continue automatically.`, "ok");
-    startBtn.textContent = "Monitoring";
-  } catch (err) {
-    setStatus("Failed to start monitoring.", "error");
-    startBtn.textContent = "Start";
-  } finally {
-    startBtn.disabled = false;
-  }
-}
-
-// ---------- Stop Monitoring ----------
-async function stopMonitoring() {
-  const domain = domainInput.value.trim();
-  if (!domain) {
-    setStatus("Please enter a domain.", "error");
-    return;
-  }
-
-  setStatus("Stopping monitoring...", "info");
-  stopBtn.disabled = true;
-
-  try {
-    const res = await fetch(
-      `${API_BASE}/monitoring/stop?domain=${encodeURIComponent(domain)}`,
-      { method: "POST" }
-    );
-    if (!res.ok) throw new Error("Stop monitoring failed");
-
-    const data = await res.json();
-    setStatus(`Monitoring stopped for ${data.domain}.`, "ok");
-  } catch (err) {
-    setStatus("Failed to stop monitoring.", "error");
-  } finally {
-    stopBtn.disabled = false;
-  }
-}
-
-// ---------- Backend Health Check ----------
-async function checkBackend() {
-  try {
-    const data = await apiFetch("/health");
-    if (!data) throw new Error("Backend offline");
-    backendStatusEl.textContent = `Online — v${data.version || "unknown"}`;
-    backendStatusEl.className = "status ok";
-  } catch {
-    backendStatusEl.textContent = "Offline — backend unreachable";
-    backendStatusEl.className = "status error";
-  }
-}
-
-// ---------- Initial Load ----------
+// ------------------------
+// Entry point: attach button listener
+// ------------------------
 document.addEventListener("DOMContentLoaded", () => {
-  checkBackend();
+  const startBtn = document.getElementById("start-btn");
+  if (startBtn) {
+    startBtn.addEventListener("click", startMonitoring);
+  }
 });
+
+// ------------------------
+// Main function
+// ------------------------
+async function startMonitoring(event) {
+  const siteInput = document.getElementById("website-url");
+  if (!siteInput) return alert("Website input not found.");
+
+  let url = siteInput.value.trim();
+  if (!url) return alert("Enter a website URL.");
+
+  // Normalize URL
+  if (!url.startsWith("http")) {
+    url = "https://" + url;
+  }
+
+  const startBtn = event?.target || document.getElementById("start-btn");
+  if (startBtn) {
+    startBtn.disabled = true;
+    startBtn.textContent = "Scanning...";
+  }
+
+  try {
+    await loadRealData(url);
+  } catch (err) {
+    console.error("Monitoring failed:", err);
+    alert("Scan failed. Backend unreachable or invalid response.");
+  } finally {
+    if (startBtn) {
+      startBtn.disabled = false;
+      startBtn.textContent = "Start Monitoring";
+    }
+  }
+}
+
+// ------------------------
+// Fetch and normalize backend data
+// ------------------------
+async function loadRealData(url) {
+  const domain = new URL(url).hostname;
+
+  const endpoints = [
+    { key: "sslRaw", path: `/ssl/${domain}` },
+    { key: "uptimeRaw", path: `/uptime/${domain}` },
+    { key: "latencyRaw", path: `/latency/${domain}` },
+    { key: "vulnRaw", path: `/vulnerabilities/${domain}` },
+    { key: "seoRaw", path: `/seo/${domain}` }
+  ];
+
+  // Fetch all endpoints in parallel
+  const fetches = endpoints.map(e => fetch(API_BASE + e.path));
+  const responses = await Promise.all(fetches);
+
+  // Check if any endpoint failed
+  for (let res of responses) {
+    if (!res.ok) {
+      throw new Error(`Backend fetch failed: ${res.status} ${res.statusText}`);
+    }
+  }
+
+  const jsonData = await Promise.all(responses.map(r => r.json()));
+
+  const rawData = {};
+  endpoints.forEach((e, idx) => {
+    rawData[e.key] = jsonData[idx];
+  });
+
+  const normalized = normalizeBackendData(rawData);
+  renderCards(normalized);
+}
+
+// ------------------------
+// Adapter: backend → UI
+// ------------------------
+function normalizeBackendData(raw) {
+  const ssl = raw.sslRaw || {};
+  const uptime = raw.uptimeRaw || {};
+  const latency = raw.latencyRaw || {};
+  const vuln = raw.vulnRaw || {};
+  const seo = raw.seoRaw || {};
+
+  return {
+    ssl: {
+      valid: ssl.valid === true || ssl.status === "Valid",
+      managed: ssl.managed ?? false,
+      expires_in_days: ssl.expires_in_days ?? ssl.days_remaining ?? null
+    },
+
+    uptime: {
+      status: uptime.status
+        ? uptime.status.charAt(0).toUpperCase() + uptime.status.slice(1)
+        : "Unknown",
+      response_time_ms: latency.response_time_ms ?? latency.latency_ms ?? null
+    },
+
+    vulnerabilities: Array.isArray(vuln.findings)
+      ? vuln.findings.map(v => ({
+          type: v.type || v.name || "Issue",
+          severity: v.severity || "Medium"
+        }))
+      : [],
+
+    seo: {
+      score: typeof seo.score === "number" ? seo.score : null,
+      status: seo.status || "Not scanned"
+    },
+
+    traffic: { status: "Beta" },
+
+    remediation: [],
+    ai_summary: "AI insights will appear here once analysis is enabled.",
+    ai_recommendations: []
+  };
+}
+
+// ------------------------
+// Render cards
+// ------------------------
+function renderCards(data) {
+  if (!data) return;
+
+  // SSL
+  document.getElementById("ssl").textContent = `Status: ${data.ssl.valid ? "Valid" : "Invalid"}`;
+  document.getElementById("ssl-managed").textContent = `Managed: ${data.ssl.managed ? "Yes" : "No"}`;
+  document.getElementById("ssl-renewed").textContent = `Expires in: ${data.ssl.expires_in_days ?? "—"} days`;
+
+  // Uptime
+  document.getElementById("uptime").textContent = data.uptime.status;
+  document.getElementById("response").textContent = `${data.uptime.response_time_ms ?? "—"} ms`;
+
+  // Vulnerabilities
+  const vulnElem = document.getElementById("vulnerabilites");
+  vulnElem.textContent = data.vulnerabilities.length;
+  const vulnList = document.getElementById("vulnList");
+  if (vulnList) {
+    vulnList.innerHTML = "";
+    data.vulnerabilities.forEach(v => {
+      const li = document.createElement("li");
+      li.textContent = `${v.type} — ${v.severity}`;
+      vulnList.appendChild(li);
+    });
+  }
+
+  // SEO
+  const seoElem = document.getElementById("seo");
+  if (seoElem) seoElem.textContent = data.seo.status;
+
+  // Traffic
+  const trafficElem = document.getElementById("site-traffic");
+  if (trafficElem) trafficElem.textContent = data.traffic.status;
+}
 </script>
+
  
 </html>  
 </body>
