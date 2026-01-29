@@ -100,153 +100,139 @@
     <ul id="saved-sites" class="list-none pl-0 mt-2 space-y-1 text-white-800 text-sm"></ul>
   </div>
 </div>
-
 <script>
-/* ===============================
-   CONFIG
-================================ */
-const API_BASE = ""; // same origin (Render)
+const API_BASE = ""; // leave empty if backend is same origin, or put base URL
 
-/* ===============================
-   UTILITIES
-================================ */
-function extractDomain(raw) {
+// ------------------------
+// Core function: Start Monitoring
+// ------------------------
+async function startMonitoring() {
+  const domainInput = document.getElementById("website-url");
+  const domain = domainInput.value.trim();
+  if (!domain) return alert("Please enter a website URL");
+
   try {
-    if (!raw.startsWith("http")) raw = "https://" + raw;
-    return new URL(raw).hostname;
-  } catch {
+    // 1️⃣ Load core metrics
+    const rawData = await fetchCoreMetrics(domain);
+
+    // 2️⃣ Load latency separately
+    const latencyData = await fetchLatency(domain);
+
+    // 3️⃣ Normalize and render all cards
+    const normalized = normalizeBackendData(rawData);
+    normalized.responseTime = latencyData?.response_time_ms ?? null;
+
+    renderCards(normalized);
+
+    // 4️⃣ Trigger Auto-Fix All silently
+    const autofixRes = await fetch(`${API_BASE}/autofix/run?sites=${encodeURIComponent(domain)}`, {
+      method: "POST"
+    });
+    const autofixJson = await autofixRes.json();
+    console.log("Auto-Fix executed:", autofixJson);
+
+  } catch (err) {
+    console.error("Monitoring failed:", err);
+  }
+}
+
+// ------------------------
+// Fetch core metrics (SSL, uptime, vulnerabilities, SEO, traffic)
+// ------------------------
+async function fetchCoreMetrics(domain) {
+  const endpoints = [
+    { key: "sslRaw", path: `/ssl/${domain}` },
+    { key: "uptimeRaw", path: `/uptime/${domain}` },
+    { key: "vulnRaw", path: `/vulnerabilities/${domain}` },
+    { key: "seoRaw", path: `/seo/${domain}` }
+  ];
+
+  const responses = await Promise.all(endpoints.map(e => fetch(API_BASE + e.path)));
+
+  for (let res of responses) {
+    if (!res.ok) throw new Error(`Backend fetch failed: ${res.status}`);
+  }
+
+  const jsonData = await Promise.all(responses.map(r => r.json()));
+  const rawData = {};
+  endpoints.forEach((e, idx) => (rawData[e.key] = jsonData[idx]));
+  return rawData;
+}
+
+// ------------------------
+// Fetch latency (separate endpoint)
+// ------------------------
+async function fetchLatency(domain) {
+  try {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 4000);
+
+    const res = await fetch(`${API_BASE}/latency/${domain}`, { signal: controller.signal });
+    if (!res.ok) throw new Error("Latency fetch failed");
+    return await res.json();
+  } catch (err) {
+    console.warn("Latency fetch failed (non-blocking)", err);
     return null;
   }
 }
 
-/* ===============================
-   CORE ENTRY POINT
-================================ */
-async function startMonitoring() {
-  const input = document.getElementById("website-url");
-  if (!input || !input.value) {
-    alert("Please enter a website URL");
-    return;
-  }
+// ------------------------
+// Normalize backend data → UI
+// ------------------------
+function normalizeBackendData(raw) {
+  const ssl = raw.sslRaw || {};
+  const uptime = raw.uptimeRaw || {};
+  const vuln = raw.vulnRaw || {};
+  const seo = raw.seoRaw || {};
 
-  const domain = extractDomain(input.value);
-  if (!domain) {
-    alert("Invalid URL format");
-    return;
-  }
-
-  // Load metrics
-  await loadMetrics(domain);
-
-  // Fire auto-fix (non-blocking, safe)
-  triggerAutofix(domain);
+  return {
+    ssl: {
+      valid: ssl.valid === true || ssl.status === "Valid",
+      managed: ssl.managed ?? false,
+      expires_in_days: ssl.expires_in_days ?? ssl.days_remaining ?? null
+    },
+    uptime: {
+      status: uptime.status ? uptime.status.charAt(0).toUpperCase() + uptime.status.slice(1) : "Unknown"
+    },
+    vulnerabilities: Array.isArray(vuln.findings)
+      ? vuln.findings.map(v => ({ type: v.type || v.name || "Issue", severity: v.severity || "Medium" }))
+      : [],
+    seo: {
+      score: typeof seo.score === "number" ? seo.score : null,
+      status: seo.status || "Not scanned"
+    },
+    traffic: { status: "Beta" }
+  };
 }
 
-/* ===============================
-   METRICS PIPELINE
-================================ */
-async function loadMetrics(domain) {
-  const endpoints = [
-    { key: "ssl", path: `/ssl/${domain}` },
-    { key: "uptime", path: `/uptime/${domain}` },
-    { key: "vuln", path: `/vulnerabilities/${domain}` },
-    { key: "seo", path: `/seo/${domain}` }
-  ];
+// ------------------------
+// Render all cards
+// ------------------------
+function renderCards(data) {
+  if (!data) return;
 
-  let raw = {};
+  // SSL
+  document.getElementById("ssl").textContent = `Status: ${data.ssl.valid ? "Valid" : "Invalid"}`;
+  document.getElementById("ssl-managed").textContent = `Managed: ${data.ssl.managed ? "Yes" : "No"}`;
+  document.getElementById("ssl-renewed").textContent = `Expires in: ${data.ssl.expires_in_days ?? "—"} days`;
 
-  try {
-    const responses = await Promise.all(
-      endpoints.map(e => fetch(API_BASE + e.path))
-    );
+  // Uptime
+  document.getElementById("uptime").textContent = data.uptime.status;
 
-    for (let r of responses) {
-      if (!r.ok) throw new Error("Metric fetch failed");
-    }
+  // Response Time
+  document.getElementById("response").textContent = `${data.responseTime ?? "—"} ms`;
 
-    const json = await Promise.all(responses.map(r => r.json()));
-    endpoints.forEach((e, i) => raw[e.key] = json[i]);
+  // Vulnerabilities
+  const vulnElem = document.getElementById("vulnerabilites");
+  vulnElem.textContent = data.vulnerabilities.length;
 
-  } catch (err) {
-    console.error("Metrics error:", err);
-    return;
-  }
+  // SEO
+  const seoElem = document.getElementById("seo");
+  if (seoElem) seoElem.textContent = data.seo.status;
 
-  // Latency (isolated, never breaks UI)
-  let responseTime = "—";
-  try {
-    const latencyRes = await fetch(`${API_BASE}/latency/${domain}`);
-    if (latencyRes.ok) {
-      const latencyJson = await latencyRes.json();
-      responseTime = latencyJson.response_time_ms ?? "—";
-    }
-  } catch {}
-
-  renderCards(raw, responseTime);
-}
-
-/* ===============================
-   AUTO-FIX (SAFE MODE)
-================================ */
-async function triggerAutofix(domain) {
-  try {
-    await fetch(`${API_BASE}/autofix/run`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ site: domain })
-    });
-  } catch {
-    console.warn("Autofix unavailable (ignored)");
-  }
-}
-
-/* ===============================
-   RENDER LAYER (NO LOGIC)
-================================ */
-function renderCards(raw, responseTime) {
-  /* UPTIME */
-  document.getElementById("uptime").textContent =
-    raw.uptime?.status || "Unknown";
-
-  /* RESPONSE TIME */
-  document.getElementById("response").textContent =
-    responseTime !== "—" ? `${responseTime} ms` : "—";
-
-  /* SSL */
-  const sslValid =
-    raw.ssl?.valid === true || raw.ssl?.status === "Valid";
-
-  document.getElementById("ssl").textContent =
-    `Status: ${sslValid ? "Valid" : "Invalid"}`;
-
-  document.getElementById("ssl-managed").textContent =
-    `Managed: ${raw.ssl?.managed ? "Yes" : "No"}`;
-
-  document.getElementById("ssl-renewed").textContent =
-    `Expires in: ${raw.ssl?.expires_in_days ?? raw.ssl?.days_remaining ?? "—"} days`;
-
-  /* SEO */
-  document.getElementById("seo").textContent =
-    raw.seo?.status || "Unknown";
-
-  /* TRAFFIC */
-  document.getElementById("site-traffic").textContent = "Beta";
-
-  /* VULNERABILITIES */
-  const vulnCount =
-    Array.isArray(raw.vuln?.findings)
-      ? raw.vuln.findings.length
-      : raw.vuln?.count ?? 0;
-
-  document.getElementById("vulnerabilites").textContent = vulnCount;
-
-  /* AI SECTIONS (PLACEHOLDER, SAFE) */
-  document.getElementById("ai-summary").textContent =
-    "Monitoring active. Autonomous remediation enabled.";
-
-  document.getElementById("ai-suggestions").innerHTML =
-    vulnCount > 0
-      ? "<p>Issues detected. Auto-fix attempted where supported.</p>"
-      : "<p>No critical issues detected.</p>";
+  // Traffic
+  const trafficElem = document.getElementById("site-traffic");
+  if (trafficElem) trafficElem.textContent = data.traffic.status;
 }
 </script>
+
