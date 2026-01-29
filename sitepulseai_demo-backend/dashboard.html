@@ -60,6 +60,12 @@
     <!-- SitePulseAI renewal attribution -->
   <div id="ssl-renewal-flag" class="ssl-renewal-flag"></div>
 
+  <button id="auto-fix-ssl-btn" onclick="triggerSSLAutoFix()" class="mt-2 bg-blue-500 hover:bg-blue-400 text-white px-3 py-1 rounded">
+  Auto-Fix SSL
+</button>
+<div id="ssl-auto-fix-output" class="text-sm mt-2 text-yellow-400"></div>
+
+
     </div>
 
 
@@ -261,6 +267,204 @@ if (savedDomain) {
   loadAllMetrics(savedDomain);
 }
 </script>
+
+
+<!-- Existing scripts for cards and data -->
+<script>
+// ...your existing JS code (loadRealData, renderCards, etc.)
+
+// ------------------------
+// SSL Auto-Fix Integration
+// ------------------------
+async function triggerSSLAutoFix() {
+    const domain = document.getElementById("website-url").value;
+
+    try {
+        const res = await fetch(`${API_BASE}/autofix/ssl/${domain}`, { method: "POST" });
+        const data = await res.json();
+
+        // Display autofix output in SSL card
+        const outputDiv = document.getElementById("ssl-auto-fix-output");
+        outputDiv.textContent = `${data.fix_result.message} (Status: ${data.fix_result.status})`;
+
+        // Optional: refresh SSL card values after fix
+        await loadSSLCard(domain);
+
+    } catch (err) {
+        const outputDiv = document.getElementById("ssl-auto-fix-output");
+        outputDiv.textContent = "SSL auto-fix failed.";
+        console.error(err);
+    }
+}
+
+async function loadSSLCard(domain) {
+    try {
+        const res = await fetch(`${API_BASE}/ssl/${domain}`);
+        const sslData = await res.json();
+        document.getElementById("ssl").textContent = `Status: ${sslData.status}`;
+        document.getElementById("ssl-managed").textContent = `Managed: ${sslData.managed ? "Yes" : "No"}`;
+        document.getElementById("ssl-renewed").textContent = `Expires in: ${sslData.expires_in_days ?? "—"} days`;
+    } catch (err) {
+        console.error("Failed to reload SSL card:", err);
+    }
+}
+</script>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+
+  const API_BASE = "http://YOUR_BACKEND_URL"; // Replace with your backend URL
+
+  // -------------------------------
+  // Start Monitoring Button
+  // -------------------------------
+  window.startMonitoring = async function() {
+    const siteInput = document.getElementById("website-url").value.trim();
+    if (!siteInput) return alert("Please enter a website URL");
+
+    // Step 1: Fetch all metrics
+    const metrics = await fetchMetrics(siteInput);
+    if (!metrics) return;
+
+    // Step 2: Render all cards
+    renderCards(metrics);
+
+    // Step 3: Trigger Auto-Fix for supported issues
+    const fixResult = await autoFixAll(siteInput);
+
+    // Step 4: Update SSL card (and optionally other cards) with autofix results
+    if (fixResult) {
+      const fixOutput = document.getElementById("ssl-renewed");
+      fixOutput.textContent = `Auto-Fix Status: ${fixResult.status ?? "Completed"}`;
+
+      // Re-fetch metrics after auto-fix to show updated values
+      const updatedMetrics = await fetchMetrics(siteInput);
+      if (updatedMetrics) renderCards(updatedMetrics);
+    }
+
+    // Step 5: Save site locally
+    saveSite(siteInput);
+  };
+
+  // -------------------------------
+  // Fetch metrics from backend
+  // -------------------------------
+  async function fetchMetrics(url) {
+    const domain = new URL(url).hostname;
+
+    const rawData = {};
+    try {
+      const endpoints = [
+        { key: "sslRaw", path: `/ssl/${domain}` },
+        { key: "uptimeRaw", path: `/uptime/${domain}` },
+        { key: "vulnRaw", path: `/vulnerabilities/${domain}` },
+        { key: "seoRaw", path: `/seo/${domain}` },
+        { key: "latencyRaw", path: `/latency/${domain}` }
+      ];
+
+      const responses = await Promise.all(endpoints.map(e => fetch(API_BASE + e.path)));
+      for (let res of responses) if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+
+      const jsonData = await Promise.all(responses.map(r => r.json()));
+      endpoints.forEach((e, idx) => rawData[e.key] = jsonData[idx]);
+
+    } catch (err) {
+      console.error("Error fetching metrics:", err);
+      return null;
+    }
+
+    return normalizeBackendData(rawData);
+  }
+
+  // -------------------------------
+  // Normalize backend data for UI
+  // -------------------------------
+  function normalizeBackendData(raw) {
+    return {
+      ssl: {
+        valid: raw.sslRaw?.status === "Valid",
+        managed: raw.sslRaw?.managed ?? false,
+        expires_in_days: raw.sslRaw?.expires_in_days ?? raw.sslRaw?.days_remaining ?? null
+      },
+      uptime: {
+        status: raw.uptimeRaw?.status ?? "Unknown",
+        response_time_ms: raw.latencyRaw?.response_time_ms ?? null
+      },
+      vulnerabilities: Array.isArray(raw.vulnRaw?.findings) ? raw.vulnRaw.findings : [],
+      seo: { status: raw.seoRaw?.status ?? "Not scanned" },
+      traffic: { status: "Beta" },
+      ai_summary: "AI insights will appear here once analysis is enabled.",
+      ai_recommendations: []
+    };
+  }
+
+  // -------------------------------
+  // Render cards
+  // -------------------------------
+  function renderCards(data) {
+    if (!data) return;
+
+    document.getElementById("ssl").textContent = `Status: ${data.ssl.valid ? "Valid" : "Invalid"}`;
+    document.getElementById("ssl-managed").textContent = `Managed: ${data.ssl.managed ? "Yes" : "No"}`;
+    document.getElementById("ssl-renewed").textContent = `Expires in: ${data.ssl.expires_in_days ?? "—"} days`;
+
+    document.getElementById("uptime").textContent = data.uptime.status;
+    document.getElementById("response").textContent = `${data.uptime.response_time_ms ?? "—"} ms`;
+
+    document.getElementById("seo").textContent = data.seo.status;
+    document.getElementById("site-traffic").textContent = data.traffic.status;
+
+    const vulnElem = document.getElementById("vulnerabilites");
+    vulnElem.textContent = data.vulnerabilities.length;
+
+    document.getElementById("ai-summary").textContent = data.ai_summary;
+  }
+
+  // -------------------------------
+  // Auto-Fix All
+  // -------------------------------
+  async function autoFixAll(site) {
+    try {
+      const res = await fetch(`${API_BASE}/autofix/all?site=${site}`, { method: "POST" });
+      return await res.json();
+    } catch (err) {
+      console.error("Auto-Fix failed:", err);
+      return null;
+    }
+  }
+
+  // -------------------------------
+  // Local Storage Helpers
+  // -------------------------------
+  function saveSite(site) {
+    const saved = JSON.parse(localStorage.getItem("savedSites") || "[]");
+    if (!saved.includes(site)) saved.push(site);
+    localStorage.setItem("savedSites", JSON.stringify(saved));
+    renderSavedSites();
+  }
+
+  window.clearSavedSites = function() {
+    localStorage.removeItem("savedSites");
+    renderSavedSites();
+  }
+
+  function renderSavedSites() {
+    const saved = JSON.parse(localStorage.getItem("savedSites") || "[]");
+    const container = document.getElementById("saved-sites");
+    container.innerHTML = "";
+    saved.forEach(site => {
+      const li = document.createElement("li");
+      li.textContent = site;
+      container.appendChild(li);
+    });
+  }
+  renderSavedSites();
+
+});
+</script>
+
+
+
 
 </html>  
 </body>
