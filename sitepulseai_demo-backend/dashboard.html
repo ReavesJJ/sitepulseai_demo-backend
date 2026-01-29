@@ -101,65 +101,12 @@
   </div>
 </div>
 
-
 <script>
-/* =========================================================
-   SitePulseAI Dashboard — Phase 3 Hardened Production Script
-   ========================================================= */
+const API_BASE = ""; // same-origin backend
 
-const API_BASE = ""; // Same-origin backend
-
-/* ============================
-   Monitoring State Controller
-   ============================ */
-const MonitoringState = {
-  active: false,
-  domain: null,
-  startedAt: null,
-
-  start(domain) {
-    if (this.active) return false;
-    this.active = true;
-    this.domain = domain;
-    this.startedAt = Date.now();
-    this.persist();
-    return true;
-  },
-
-  stop() {
-    this.active = false;
-    this.domain = null;
-    this.startedAt = null;
-    localStorage.removeItem("sitepulse_monitoring");
-  },
-
-  persist() {
-    localStorage.setItem(
-      "sitepulse_monitoring",
-      JSON.stringify({
-        active: this.active,
-        domain: this.domain,
-        startedAt: this.startedAt
-      })
-    );
-  },
-
-  restore() {
-    try {
-      const saved = localStorage.getItem("sitepulse_monitoring");
-      if (!saved) return null;
-      const parsed = JSON.parse(saved);
-      Object.assign(this, parsed);
-      return parsed;
-    } catch {
-      return null;
-    }
-  }
-};
-
-/* ============================
-   Entry Point — Start Monitoring
-   ============================ */
+// ------------------------
+// Start Monitoring (ENTRY)
+// ------------------------
 window.startMonitoring = async function () {
   const input = document.getElementById("website-url");
   if (!input || !input.value.trim()) {
@@ -167,69 +114,64 @@ window.startMonitoring = async function () {
     return;
   }
 
-  const domain = extractDomain(input.value.trim());
+  const url = input.value.trim();
+  const domain = normalizeDomain(url);
 
-  if (!MonitoringState.start(domain)) {
-    showGlobalStatus("Monitoring already running");
-    return;
-  }
-
-  showGlobalStatus("Monitoring started");
+  console.log("Monitoring domain:", domain);
 
   try {
-    const [coreRaw, latencyRaw] = await Promise.all([
-      fetchCoreMetrics(domain),
-      fetchLatency(domain)
-    ]);
+    const core = await fetchCoreMetrics(domain);
+    const latency = await fetchLatency(domain);
 
-    const normalized = normalizeBackendData(coreRaw, latencyRaw);
+    const normalized = normalizeBackendData(core, latency);
     renderCards(normalized);
 
-    triggerAutoFix(domain);
-    updateLastScan();
-
+    // Silent auto-fix trigger
+    fetch(`${API_BASE}/autofix/run?sites=${encodeURIComponent(domain)}`, {
+      method: "POST"
+    }).catch(() => {});
+    
   } catch (err) {
-    console.error("Monitoring error:", err);
-    showGlobalStatus("Monitoring failed", true);
-    MonitoringState.stop();
+    console.error("Monitoring pipeline failed:", err);
+    alert("Monitoring failed — check DevTools for details.");
   }
 };
 
-/* ============================
-   Utilities
-   ============================ */
-function extractDomain(url) {
-  return new URL(url.startsWith("http") ? url : `https://${url}`).hostname;
+// ------------------------
+// Normalize Domain
+// ------------------------
+function normalizeDomain(input) {
+  try {
+    return new URL(input.startsWith("http") ? input : `https://${input}`).hostname;
+  } catch {
+    throw new Error("Invalid URL format");
+  }
 }
 
-/* ============================
-   Backend Fetching
-   ============================ */
+// ------------------------
+// Fetch Core Metrics
+// ------------------------
 async function fetchCoreMetrics(domain) {
   const endpoints = {
-    ssl: `/ssl/${domain}`,
-    uptime: `/uptime/${domain}`,
-    vulnerabilities: `/vulnerabilities/${domain}`,
-    seo: `/seo/${domain}`
+    sslRaw: `/ssl/${domain}`,
+    uptimeRaw: `/uptime/${domain}`,
+    vulnRaw: `/vulnerabilities/${domain}`,
+    seoRaw: `/seo/${domain}`
   };
 
   const results = {};
-
-  await Promise.all(
-    Object.entries(endpoints).map(async ([key, path]) => {
-      try {
-        const res = await fetch(API_BASE + path);
-        if (!res.ok) throw new Error();
-        results[key] = await res.json();
-      } catch {
-        results[key] = null;
-      }
-    })
-  );
+  for (const [key, path] of Object.entries(endpoints)) {
+    const res = await fetch(API_BASE + path);
+    if (!res.ok) throw new Error(`${key} failed (${res.status})`);
+    results[key] = await res.json();
+  }
 
   return results;
 }
 
+// ------------------------
+// Fetch Latency (Non-Blocking)
+// ------------------------
 async function fetchLatency(domain) {
   try {
     const controller = new AbortController();
@@ -239,120 +181,66 @@ async function fetchLatency(domain) {
       signal: controller.signal
     });
 
-    if (!res.ok) throw new Error();
+    if (!res.ok) throw new Error("Latency fetch failed");
     return await res.json();
-  } catch {
+  } catch (err) {
+    console.warn("Latency unavailable:", err.message);
     return null;
   }
 }
 
-/* ============================
-   Normalize Backend → UI
-   ============================ */
+// ------------------------
+// Normalize Backend → UI
+// ------------------------
 function normalizeBackendData(raw, latency) {
   return {
-    ssl: {
-      status:
-        raw.ssl?.valid === true || raw.ssl?.status === "Valid"
-          ? "Valid"
-          : "Invalid",
-      expires:
-        raw.ssl?.expires_in_days ??
-        raw.ssl?.days_remaining ??
-        "—"
-    },
-
     uptime: {
-      status: raw.uptime?.status
-        ? raw.uptime.status.toUpperCase()
-        : "UNKNOWN"
+      status: capitalize(raw.uptimeRaw?.status || "unknown")
     },
-
-    responseTime: latency?.response_time_ms ?? "—",
-
-    vulnerabilities: Array.isArray(raw.vulnerabilities?.findings)
-      ? raw.vulnerabilities.findings.length
-      : 0,
-
+    ssl: {
+      status: raw.sslRaw?.status || "Valid",
+      expires: raw.sslRaw?.expires_in_days ?? raw.sslRaw?.days_remaining ?? "—"
+    },
+    vulnerabilities: {
+      count: Array.isArray(raw.vulnRaw?.findings)
+        ? raw.vulnRaw.findings.length
+        : 0
+    },
     seo: {
-      status: raw.seo?.status ?? "Not scanned",
-      score:
-        typeof raw.seo?.score === "number"
-          ? raw.seo.score
-          : "—"
+      score: typeof raw.seoRaw?.score === "number"
+        ? raw.seoRaw.score
+        : "—"
     },
-
-    traffic: "Beta"
+    latency: {
+      response_time_ms: latency?.response_time_ms ?? "—"
+    }
   };
 }
 
-/* ============================
-   Render Dashboard Cards
-   ============================ */
+// ------------------------
+// Render Cards (STRICT)
+// ------------------------
 function renderCards(data) {
   setText("uptime", data.uptime.status);
-  setText("response", `${data.responseTime} ms`);
-  setText("ssl", `Status: ${data.ssl.status}`);
-  setText("seo", data.seo.status);
-  setText("vulnerabilities", data.vulnerabilities);
-  setText("traffic", data.traffic);
+  setText("response", `${data.latency.response_time_ms} ms`);
+  setText("ssl", `Expires in ${data.ssl.expires} days`);
+  setText("seo", `Score: ${data.seo.score}`);
+  setText("vulnerabilities", data.vulnerabilities.count);
 }
 
+// ------------------------
+// Utilities
+// ------------------------
 function setText(id, value) {
   const el = document.getElementById(id);
   if (el) el.textContent = value;
 }
 
-/* ============================
-   Auto-Fix (Silent)
-   ============================ */
-async function triggerAutoFix(domain) {
-  try {
-    await fetch(
-      `${API_BASE}/autofix/run?sites=${encodeURIComponent(domain)}`,
-      { method: "POST" }
-    );
-  } catch {
-    // Silent by design
-  }
+function capitalize(str) {
+  return str.charAt(0).toUpperCase() + str.slice(1);
 }
-
-/* ============================
-   Client-Safe Status & UX
-   ============================ */
-function showGlobalStatus(message, isError = false) {
-  const el = document.getElementById("monitor-status");
-  if (!el) return;
-  el.textContent = message;
-  el.className = isError ? "status error" : "status ok";
-}
-
-function updateLastScan() {
-  const el = document.getElementById("last-scan");
-  if (el) el.textContent = new Date().toLocaleString();
-}
-
-/* ============================
-   Restore Session on Reload
-   ============================ */
-document.addEventListener("DOMContentLoaded", async () => {
-  const restored = MonitoringState.restore();
-  if (restored?.active && restored.domain) {
-    showGlobalStatus("Resuming monitoring");
-    try {
-      const [coreRaw, latencyRaw] = await Promise.all([
-        fetchCoreMetrics(restored.domain),
-        fetchLatency(restored.domain)
-      ]);
-      const normalized = normalizeBackendData(coreRaw, latencyRaw);
-      renderCards(normalized);
-      updateLastScan();
-    } catch {
-      MonitoringState.stop();
-    }
-  }
-});
 </script>
+>
 
 </html>
 </body>
