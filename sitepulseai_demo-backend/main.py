@@ -11,8 +11,11 @@ from seo_checker import router as seo_router
 from traffic_checker import router as traffic_router
 from latency_checker import router as latency_router
 from autofix_ssl import fix_expired_ssl
-
 from autofix_router import router as autofix_router  # adjust file name
+from remediation_store import get_pending_remediations, add_remediation, clear_remediations
+
+
+
 
 # -----------------------
 # Other engines / persistence
