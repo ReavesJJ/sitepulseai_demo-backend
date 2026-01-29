@@ -100,139 +100,259 @@
     <ul id="saved-sites" class="list-none pl-0 mt-2 space-y-1 text-white-800 text-sm"></ul>
   </div>
 </div>
-<script>
-const API_BASE = ""; // leave empty if backend is same origin, or put base URL
 
-// ------------------------
-// Core function: Start Monitoring
-// ------------------------
-async function startMonitoring() {
-  const domainInput = document.getElementById("website-url");
-  const domain = domainInput.value.trim();
-  if (!domain) return alert("Please enter a website URL");
+
+<script>
+/* =========================================================
+   SitePulseAI Dashboard — Phase 3 Hardened Production Script
+   ========================================================= */
+
+const API_BASE = ""; // Same-origin backend
+
+/* ============================
+   Monitoring State Controller
+   ============================ */
+const MonitoringState = {
+  active: false,
+  domain: null,
+  startedAt: null,
+
+  start(domain) {
+    if (this.active) return false;
+    this.active = true;
+    this.domain = domain;
+    this.startedAt = Date.now();
+    this.persist();
+    return true;
+  },
+
+  stop() {
+    this.active = false;
+    this.domain = null;
+    this.startedAt = null;
+    localStorage.removeItem("sitepulse_monitoring");
+  },
+
+  persist() {
+    localStorage.setItem(
+      "sitepulse_monitoring",
+      JSON.stringify({
+        active: this.active,
+        domain: this.domain,
+        startedAt: this.startedAt
+      })
+    );
+  },
+
+  restore() {
+    try {
+      const saved = localStorage.getItem("sitepulse_monitoring");
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      Object.assign(this, parsed);
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+};
+
+/* ============================
+   Entry Point — Start Monitoring
+   ============================ */
+window.startMonitoring = async function () {
+  const input = document.getElementById("website-url");
+  if (!input || !input.value.trim()) {
+    alert("Please enter a website URL");
+    return;
+  }
+
+  const domain = extractDomain(input.value.trim());
+
+  if (!MonitoringState.start(domain)) {
+    showGlobalStatus("Monitoring already running");
+    return;
+  }
+
+  showGlobalStatus("Monitoring started");
 
   try {
-    // 1️⃣ Load core metrics
-    const rawData = await fetchCoreMetrics(domain);
+    const [coreRaw, latencyRaw] = await Promise.all([
+      fetchCoreMetrics(domain),
+      fetchLatency(domain)
+    ]);
 
-    // 2️⃣ Load latency separately
-    const latencyData = await fetchLatency(domain);
-
-    // 3️⃣ Normalize and render all cards
-    const normalized = normalizeBackendData(rawData);
-    normalized.responseTime = latencyData?.response_time_ms ?? null;
-
+    const normalized = normalizeBackendData(coreRaw, latencyRaw);
     renderCards(normalized);
 
-    // 4️⃣ Trigger Auto-Fix All silently
-    const autofixRes = await fetch(`${API_BASE}/autofix/run?sites=${encodeURIComponent(domain)}`, {
-      method: "POST"
-    });
-    const autofixJson = await autofixRes.json();
-    console.log("Auto-Fix executed:", autofixJson);
+    triggerAutoFix(domain);
+    updateLastScan();
 
   } catch (err) {
-    console.error("Monitoring failed:", err);
+    console.error("Monitoring error:", err);
+    showGlobalStatus("Monitoring failed", true);
+    MonitoringState.stop();
   }
+};
+
+/* ============================
+   Utilities
+   ============================ */
+function extractDomain(url) {
+  return new URL(url.startsWith("http") ? url : `https://${url}`).hostname;
 }
 
-// ------------------------
-// Fetch core metrics (SSL, uptime, vulnerabilities, SEO, traffic)
-// ------------------------
+/* ============================
+   Backend Fetching
+   ============================ */
 async function fetchCoreMetrics(domain) {
-  const endpoints = [
-    { key: "sslRaw", path: `/ssl/${domain}` },
-    { key: "uptimeRaw", path: `/uptime/${domain}` },
-    { key: "vulnRaw", path: `/vulnerabilities/${domain}` },
-    { key: "seoRaw", path: `/seo/${domain}` }
-  ];
+  const endpoints = {
+    ssl: `/ssl/${domain}`,
+    uptime: `/uptime/${domain}`,
+    vulnerabilities: `/vulnerabilities/${domain}`,
+    seo: `/seo/${domain}`
+  };
 
-  const responses = await Promise.all(endpoints.map(e => fetch(API_BASE + e.path)));
+  const results = {};
 
-  for (let res of responses) {
-    if (!res.ok) throw new Error(`Backend fetch failed: ${res.status}`);
-  }
+  await Promise.all(
+    Object.entries(endpoints).map(async ([key, path]) => {
+      try {
+        const res = await fetch(API_BASE + path);
+        if (!res.ok) throw new Error();
+        results[key] = await res.json();
+      } catch {
+        results[key] = null;
+      }
+    })
+  );
 
-  const jsonData = await Promise.all(responses.map(r => r.json()));
-  const rawData = {};
-  endpoints.forEach((e, idx) => (rawData[e.key] = jsonData[idx]));
-  return rawData;
+  return results;
 }
 
-// ------------------------
-// Fetch latency (separate endpoint)
-// ------------------------
 async function fetchLatency(domain) {
   try {
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 4000);
 
-    const res = await fetch(`${API_BASE}/latency/${domain}`, { signal: controller.signal });
-    if (!res.ok) throw new Error("Latency fetch failed");
+    const res = await fetch(`${API_BASE}/latency/${domain}`, {
+      signal: controller.signal
+    });
+
+    if (!res.ok) throw new Error();
     return await res.json();
-  } catch (err) {
-    console.warn("Latency fetch failed (non-blocking)", err);
+  } catch {
     return null;
   }
 }
 
-// ------------------------
-// Normalize backend data → UI
-// ------------------------
-function normalizeBackendData(raw) {
-  const ssl = raw.sslRaw || {};
-  const uptime = raw.uptimeRaw || {};
-  const vuln = raw.vulnRaw || {};
-  const seo = raw.seoRaw || {};
-
+/* ============================
+   Normalize Backend → UI
+   ============================ */
+function normalizeBackendData(raw, latency) {
   return {
     ssl: {
-      valid: ssl.valid === true || ssl.status === "Valid",
-      managed: ssl.managed ?? false,
-      expires_in_days: ssl.expires_in_days ?? ssl.days_remaining ?? null
+      status:
+        raw.ssl?.valid === true || raw.ssl?.status === "Valid"
+          ? "Valid"
+          : "Invalid",
+      expires:
+        raw.ssl?.expires_in_days ??
+        raw.ssl?.days_remaining ??
+        "—"
     },
+
     uptime: {
-      status: uptime.status ? uptime.status.charAt(0).toUpperCase() + uptime.status.slice(1) : "Unknown"
+      status: raw.uptime?.status
+        ? raw.uptime.status.toUpperCase()
+        : "UNKNOWN"
     },
-    vulnerabilities: Array.isArray(vuln.findings)
-      ? vuln.findings.map(v => ({ type: v.type || v.name || "Issue", severity: v.severity || "Medium" }))
-      : [],
+
+    responseTime: latency?.response_time_ms ?? "—",
+
+    vulnerabilities: Array.isArray(raw.vulnerabilities?.findings)
+      ? raw.vulnerabilities.findings.length
+      : 0,
+
     seo: {
-      score: typeof seo.score === "number" ? seo.score : null,
-      status: seo.status || "Not scanned"
+      status: raw.seo?.status ?? "Not scanned",
+      score:
+        typeof raw.seo?.score === "number"
+          ? raw.seo.score
+          : "—"
     },
-    traffic: { status: "Beta" }
+
+    traffic: "Beta"
   };
 }
 
-// ------------------------
-// Render all cards
-// ------------------------
+/* ============================
+   Render Dashboard Cards
+   ============================ */
 function renderCards(data) {
-  if (!data) return;
-
-  // SSL
-  document.getElementById("ssl").textContent = `Status: ${data.ssl.valid ? "Valid" : "Invalid"}`;
-  document.getElementById("ssl-managed").textContent = `Managed: ${data.ssl.managed ? "Yes" : "No"}`;
-  document.getElementById("ssl-renewed").textContent = `Expires in: ${data.ssl.expires_in_days ?? "—"} days`;
-
-  // Uptime
-  document.getElementById("uptime").textContent = data.uptime.status;
-
-  // Response Time
-  document.getElementById("response").textContent = `${data.responseTime ?? "—"} ms`;
-
-  // Vulnerabilities
-  const vulnElem = document.getElementById("vulnerabilites");
-  vulnElem.textContent = data.vulnerabilities.length;
-
-  // SEO
-  const seoElem = document.getElementById("seo");
-  if (seoElem) seoElem.textContent = data.seo.status;
-
-  // Traffic
-  const trafficElem = document.getElementById("site-traffic");
-  if (trafficElem) trafficElem.textContent = data.traffic.status;
+  setText("uptime", data.uptime.status);
+  setText("response", `${data.responseTime} ms`);
+  setText("ssl", `Status: ${data.ssl.status}`);
+  setText("seo", data.seo.status);
+  setText("vulnerabilities", data.vulnerabilities);
+  setText("traffic", data.traffic);
 }
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
+/* ============================
+   Auto-Fix (Silent)
+   ============================ */
+async function triggerAutoFix(domain) {
+  try {
+    await fetch(
+      `${API_BASE}/autofix/run?sites=${encodeURIComponent(domain)}`,
+      { method: "POST" }
+    );
+  } catch {
+    // Silent by design
+  }
+}
+
+/* ============================
+   Client-Safe Status & UX
+   ============================ */
+function showGlobalStatus(message, isError = false) {
+  const el = document.getElementById("monitor-status");
+  if (!el) return;
+  el.textContent = message;
+  el.className = isError ? "status error" : "status ok";
+}
+
+function updateLastScan() {
+  const el = document.getElementById("last-scan");
+  if (el) el.textContent = new Date().toLocaleString();
+}
+
+/* ============================
+   Restore Session on Reload
+   ============================ */
+document.addEventListener("DOMContentLoaded", async () => {
+  const restored = MonitoringState.restore();
+  if (restored?.active && restored.domain) {
+    showGlobalStatus("Resuming monitoring");
+    try {
+      const [coreRaw, latencyRaw] = await Promise.all([
+        fetchCoreMetrics(restored.domain),
+        fetchLatency(restored.domain)
+      ]);
+      const normalized = normalizeBackendData(coreRaw, latencyRaw);
+      renderCards(normalized);
+      updateLastScan();
+    } catch {
+      MonitoringState.stop();
+    }
+  }
+});
 </script>
 
+</html>
+</body>
