@@ -1,8 +1,0 @@
-{
-  "dependencies": {
-    "@shadcn/ui": "^0.0.4",
-    "axios": "^1.13.4",
-    "recharts": "^3.7.0",
-    "tailwindcss": "^4.1.18"
-  }
-}
