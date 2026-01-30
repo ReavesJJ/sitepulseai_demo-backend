@@ -99,6 +99,13 @@ app.include_router(autofix_router)
 # -----------------------
 # Root endpoint
 # -----------------------
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 @app.get("/")
 async def root():
     return {
