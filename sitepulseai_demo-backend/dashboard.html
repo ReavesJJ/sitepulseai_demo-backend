@@ -103,211 +103,179 @@
 </div>
 
 
-
 <script>
-const API_BASE = "sitepulseai_demo-backend"; // leave empty if backend is same origin
-let monitorInterval = null;
+/* ============================================================
+   SitePulseAI Dashboard Runtime
+   Standalone • Autonomous • Deterministic
+   ============================================================ */
 
-// ------------------------
-// Persistent Audit Trail
-// ------------------------
-function logAudit(site, observations = {}, decisions = {}, status = "Success") {
-  const history = JSON.parse(localStorage.getItem("auditTrail") || "[]");
-  history.push({
-    timestamp: new Date().toISOString(),
-    site,
-    observations,
-    decisions,
-    status
-  });
-  localStorage.setItem("auditTrail", JSON.stringify(history));
-}
+const API_BASE = "https://sitepulseai-demo-backend.onrender.com"; // Replace with your Render backend URL
 
-// ------------------------
-// Start Monitoring (Autonomous)
-// ------------------------
-async function startMonitoring() {
-  const input = document.getElementById("website-url");
-  if (!input || !input.value.trim()) return alert("Please enter a website URL");
-  const domain = input.value.trim();
+/* ---------------------------
+   DOM REFERENCES
+---------------------------- */
+const input = document.getElementById("website-url");
+const startBtn = document.querySelector("button[onclick='startMonitoring()']");
 
-  if (monitorInterval) clearInterval(monitorInterval);
+// Multi-URL elements
+const multiInput = document.getElementById("multi-url-input");
+const multiList = document.getElementById("multi-url-list");
 
-  await fetchAndRender(domain);
-  monitorInterval = setInterval(() => fetchAndRender(domain), 30000);
-}
+// Card fields
+const cards = {
+  uptime: document.getElementById("uptime"),
+  latency: document.getElementById("response"),
+  ssl: document.getElementById("ssl"),
+  seo: document.getElementById("seo"),
+  vulns: document.getElementById("vulnerabilities"),
+  traffic: document.getElementById("site-traffic"),
+  aiSummary: document.getElementById("ai-summary"),
+  aiSuggestions: document.getElementById("ai-suggestions"),
+  sslAutoFixOutput: document.getElementById("ssl-auto-fix-output")
+};
 
-// ------------------------
-// Fetch & Render All Metrics
-// ------------------------
-async function fetchAndRender(domain) {
-  let observations = {};
-  let decisions = {};
+/* ---------------------------
+   UTILITIES
+---------------------------- */
+function normalizeDomain(url) {
   try {
-    const [coreData, latencyData] = await Promise.all([
-      fetchCoreMetrics(domain),
-      fetchLatency(domain)
+    return new URL(url).hostname;
+  } catch {
+    alert("Invalid URL");
+    throw new Error("Invalid URL");
+  }
+}
+
+async function fetchJSON(path) {
+  try {
+    const res = await fetch(API_BASE + path);
+    if (!res.ok) throw new Error(`Fetch failed: ${path} (${res.status})`);
+    return res.json();
+  } catch (err) {
+    console.warn(err.message);
+    return null; // Do not block rendering if one fetch fails
+  }
+}
+
+/* ---------------------------
+   RENDER FUNCTIONS
+---------------------------- */
+function renderUptime(data) {
+  cards.uptime.textContent = data?.status || "UNKNOWN";
+}
+
+function renderLatency(data) {
+  cards.latency.textContent = data?.response_time_ms ? `${data.response_time_ms.toFixed(2)} ms` : "— ms";
+}
+
+function renderSSL(data) {
+  cards.ssl.textContent = data?.valid ? "Valid" : "Invalid";
+}
+
+function renderSEO(data) {
+  cards.seo.textContent = data?.score ? `Score ${data.score}` : "Not scanned";
+}
+
+function renderVulns(data) {
+  cards.vulns.textContent = data?.findings?.length ?? 0;
+}
+
+function renderTraffic(data) {
+  cards.traffic.textContent = data?.visits ?? "—";
+}
+
+function renderAISummary(summary) {
+  cards.aiSummary.textContent = summary || "No AI Summary available";
+}
+
+function renderAISuggestions(suggestions = []) {
+  cards.aiSuggestions.innerHTML = "";
+  suggestions.forEach(s => {
+    const div = document.createElement("div");
+    div.textContent = `• ${s}`;
+    cards.aiSuggestions.appendChild(div);
+  });
+}
+
+function renderSSLFix(output) {
+  cards.sslAutoFixOutput.textContent = output || "";
+}
+
+/* ---------------------------
+   CORE MONITORING
+---------------------------- */
+async function startMonitoring() {
+  const url = input.value.trim();
+  if (!url) {
+    alert("Please enter a website URL");
+    return;
+  }
+
+  const domain = normalizeDomain(url);
+
+  try {
+    // 1️⃣ Scan
+    const scan = await fetchJSON(`/scan?url=${encodeURIComponent(domain)}`);
+
+    // 2️⃣ Health / SSL / Latency / Traffic / SEO / Vulnerabilities
+    const [
+      check,
+      ssl,
+      latency,
+      seo,
+      vulns,
+      traffic,
+      aiSummary,
+      aiSuggestions
+    ] = await Promise.all([
+      fetchJSON(`/check?url=${encodeURIComponent(domain)}`),
+      fetchJSON(`/ssl/${domain}`),
+      fetchJSON(`/latency/${domain}`),
+      fetchJSON(`/seo/${domain}`),
+      fetchJSON(`/vulnerabilities/${domain}`),
+      fetchJSON(`/traffic/${domain}`),
+      fetchJSON(`/ai/summary?url=${encodeURIComponent(domain)}`),
+      fetchJSON(`/ai/suggestions?url=${encodeURIComponent(domain)}`)
     ]);
 
-    const normalized = normalizeBackendData(coreData, latencyData);
+    // 3️⃣ Render
+    if (check) renderUptime(check);
+    if (latency) renderLatency(latency);
+    if (ssl) renderSSL(ssl);
+    if (seo) renderSEO(seo);
+    if (vulns) renderVulns(vulns);
+    if (traffic) renderTraffic(traffic);
+    if (aiSummary) renderAISummary(aiSummary.summary);
+    if (aiSuggestions) renderAISuggestions(aiSuggestions.suggestions);
 
-    // Update UI cards
-    renderCards(normalized);
-
-    observations = {
-      ssl: normalized.ssl.status,
-      uptime: normalized.uptime.status,
-      responseTime: normalized.responseTime,
-      vulnerabilities: normalized.vulnerabilities,
-      seo: normalized.seo.status,
-      traffic: normalized.traffic
-    };
-
-    // Trigger Auto-Fix silently
-    await triggerAutoFix(domain);
-    decisions.ssl_auto_fix = "Triggered";
-
-    // Update last scan
-    updateLastScan();
-    showStatus("Monitoring running...", false);
-
-    // Log audit
-    logAudit(domain, observations, decisions, "Success");
+    // 4️⃣ Trigger Auto-Fix SSL silently
+    await fetch(`${API_BASE}/autofix/run?sites=${encodeURIComponent(domain)}`, { method: "POST" })
+      .then(res => res.json())
+      .then(data => renderSSLFix(data.message));
 
   } catch (err) {
-    console.warn("Monitoring fetch error:", err);
-    showStatus("Partial failure — retrying...", true);
-    logAudit(domain, observations, decisions, "Failed");
+    console.error("Monitoring failed:", err);
+    alert("Monitoring failed — check backend or DevTools console");
   }
 }
 
-// ------------------------
-// Core Metrics Fetch
-// ------------------------
-async function fetchCoreMetrics(domain) {
-  const endpoints = {
-    ssl: `/ssl/${domain}`,
-    uptime: `/uptime/${domain}`,
-    vulnerabilities: `/vulnerabilities/${domain}`,
-    seo: `/seo/${domain}`,
-    traffic: `/traffic/${domain}`
-  };
-
-  const results = {};
-  await Promise.all(Object.entries(endpoints).map(async ([key, path]) => {
-    try {
-      const res = await fetch(API_BASE + path);
-      results[key] = res.ok ? await res.json() : null;
-    } catch {
-      results[key] = null;
-    }
-  }));
-
-  return results;
-}
-
-// ------------------------
-// Fetch Latency
-// ------------------------
-async function fetchLatency(domain) {
-  try {
-    const controller = new AbortController();
-    setTimeout(() => controller.abort(), 4000);
-    const res = await fetch(`${API_BASE}/latency/${domain}`, { signal: controller.signal });
-    return res.ok ? await res.json() : null;
-  } catch {
-    return null;
-  }
-}
-
-// ------------------------
-// Normalize Backend → UI
-// ------------------------
-function normalizeBackendData(raw, latency) {
-  return {
-    ssl: { status: raw.ssl?.valid === true || raw.ssl?.status === "Valid" ? "Valid" : "Invalid" },
-    uptime: { status: raw.uptime?.status?.toUpperCase() || "UNKNOWN" },
-    responseTime: latency?.response_time_ms ?? "—",
-    vulnerabilities: Array.isArray(raw.vulnerabilities?.findings) ? raw.vulnerabilities.findings.length : 0,
-    seo: { status: raw.seo?.status || "Not scanned" },
-    traffic: raw.traffic?.status || "Beta"
-  };
-}
-
-// ------------------------
-// Render Metrics to Dashboard
-// ------------------------
-function renderCards(data) {
-  setValue("uptime", data.uptime.status);
-  setValue("response", data.responseTime + " ms");
-  setValue("ssl", "Status: " + data.ssl.status);
-  setValue("vulnerabilities", data.vulnerabilities);
-  setValue("seo", data.seo.status);
-  setValue("site-traffic", data.traffic);
-}
-
-// ------------------------
-// Safe DOM Write Helper
-// ------------------------
-function setValue(id, value) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = value ?? "—";
-}
-
-// ------------------------
-// Silent Auto-Fix Trigger
-// ------------------------
-async function triggerAutoFix(domain) {
-  try {
-    await fetch(`${API_BASE}/autofix/run?sites=${encodeURIComponent(domain)}`, { method: "POST" });
-  } catch {}
-}
-
-// ------------------------
-// Status & Last Scan
-// ------------------------
-function showStatus(msg, isError = false) {
-  const el = document.getElementById("monitor-status");
-  if (el) {
-    el.textContent = msg;
-    el.className = isError ? "error" : "ok";
-  }
-}
-
-function updateLastScan() {
-  const el = document.getElementById("last-scan");
-  if (el) el.textContent = new Date().toLocaleString();
-}
-
-// ------------------------
-// Multi-URL Support
-// ------------------------
+/* ---------------------------
+   MULTI-URL HANDLER
+---------------------------- */
 function addAdditionalURL() {
-  const input = document.getElementById("multi-url-input");
-  const list = document.getElementById("multi-url-list");
-  if (!input || !list) return;
-  const url = input.value.trim();
-  if (!url) return;
+  const val = multiInput.value.trim();
+  if (!val) return;
   const li = document.createElement("li");
-  li.textContent = url;
-  list.appendChild(li);
-  input.value = "";
+  li.textContent = val;
+  multiList.appendChild(li);
+  multiInput.value = "";
 }
 
-// ------------------------
-// Saved Sites Management
-// ------------------------
-function clearSavedSites() {
-  const list = document.getElementById("saved-sites");
-  if (list) list.innerHTML = "";
-}
+/* ---------------------------
+   EVENT BINDING
+---------------------------- */
+startBtn.addEventListener("click", startMonitoring);
 
-// ------------------------
-// Restore Audit Trail (Optional)
-document.addEventListener("DOMContentLoaded", () => {
-  const audit = JSON.parse(localStorage.getItem("auditTrail") || "[]");
-  console.log("Audit Trail restored:", audit);
-});
 </script>
 
 
