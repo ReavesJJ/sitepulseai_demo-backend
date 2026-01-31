@@ -226,14 +226,45 @@ async function startMonitoring() {
     renderVulnerabilities(vulnData);
     renderTraffic(trafficData);
 
-    // Optional: Trigger Auto-Fix silently
-    fetch(`/autofix/run?sites=${encodeURIComponent(domain)}`, { method: "POST" })
-      .then(() => console.log("Auto-Fix triggered"))
-      .catch(err => console.warn("Auto-Fix failed", err));
 
-    // AI cards placeholders
-    cards.aiSummary.textContent = "AI Summary will populate here.";
-    cards.aiSuggestions.textContent = "AI Recommendations will populate here.";
+    // Auto-Fix intentionally disabled by default
+// Use recommendations only
+
+// AI cards – populate after scan completes
+fetch("/ai/analyze", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    // Optional: client-provided API key
+    ...(localStorage.getItem("openai_key") && {
+      "X-OpenAI-Key": localStorage.getItem("openai_key")
+    })
+  },
+  body: JSON.stringify({
+    domain: domain,
+    ssl: cards.ssl.dataset.result,
+    vulnerabilities: cards.vulnerabilities.dataset.result,
+    seo: cards.seo.dataset.result,
+    headers: cards.headers.dataset.result
+  })
+})
+.then(res => {
+  if (!res.ok) throw new Error("AI unavailable");
+  return res.json();
+})
+.then(ai => {
+  cards.aiSummary.textContent = ai.summary;
+  cards.aiSuggestions.textContent = ai.recommendations.join("\n\n");
+})
+.catch(() => {
+  cards.aiSummary.textContent =
+    "AI analysis is optional. Add an OpenAI API key to enable insights.";
+  cards.aiSuggestions.textContent =
+    "Recommendations are available in Pro plans.";
+});
+
+
+
 
   } catch (err) {
     console.error("Monitoring failed:", err);
