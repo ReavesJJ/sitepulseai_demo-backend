@@ -1,20 +1,19 @@
 # sitepulseai_demo-backend/vulnerabilities.py
 # sitepulseai_demo-backend/vulnerabilities.py
+# sitepulseai_demo-backend/vulnerabilities.py
 
 import requests
 import ssl
 import socket
 from datetime import datetime
 import json
-import os
 from pathlib import Path
 
 CACHE_FILE = Path("vuln_cache.json")
 
 # -----------------------------
-# Utility Functions
+# Cache Helpers
 # -----------------------------
-
 def load_cache():
     if CACHE_FILE.exists():
         try:
@@ -31,21 +30,20 @@ def save_cache(cache):
     except Exception:
         pass
 
+# -----------------------------
+# Findings Summary
+# -----------------------------
 def summarize_findings(findings):
-    """
-    Converts array of findings into severity counts for the card.
-    """
     summary = {"critical": 0, "high": 0, "medium": 0, "low": 0}
     for f in findings:
-        sev = f["severity"].lower()
+        sev = f.get("severity", "").lower()
         if sev in summary:
             summary[sev] += 1
     return summary
 
 # -----------------------------
-# SSL / TLS Scanner
+# SSL / TLS Scan
 # -----------------------------
-
 def scan_ssl(domain: str):
     findings = []
     try:
@@ -67,12 +65,10 @@ def scan_ssl(domain: str):
     return findings
 
 # -----------------------------
-# HTTP Header Scanner
+# HTTP Header Scan
 # -----------------------------
-
 def scan_headers(domain: str):
     findings = []
-
     try:
         response = requests.get(f"https://{domain}", timeout=5, allow_redirects=True)
         headers = response.headers
@@ -93,38 +89,31 @@ def scan_headers(domain: str):
     return findings
 
 # -----------------------------
-# Unified Vulnerability Scan
+# Unified Scan + Cache
 # -----------------------------
-
 def scan_domain(domain: str, license_level: str = "free"):
-    """
-    Combines SSL + header findings.
-    Optional license gating for advanced checks.
-    Includes offline caching.
-    """
     domain = domain.lower().strip()
     cache = load_cache()
 
-    # Return cached if recent (offline ready)
+    # Return cached if available
     if domain in cache:
         return cache[domain]
 
     findings = []
 
-    # SSL always scanned
+    # Always scan SSL
     findings += scan_ssl(domain)
 
-    # Header scanning is free tier
+    # Header scan (free tier)
     findings += scan_headers(domain)
 
-    # Here you can implement license-gated deep scan
-    # Example: if license_level == "pro": findings += deep_scan(domain)
+    # Optionally: license-gated deep scans could go here
 
     counts = summarize_findings(findings)
 
     result = {"domain": domain, "findings": findings, "counts": counts}
 
-    # Cache result for offline use
+    # Cache for offline / fast reload
     cache[domain] = result
     save_cache(cache)
 
