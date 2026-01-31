@@ -1,12 +1,18 @@
-from fastapi import APIRouter
+# sitepulseai_demo-backend/vulnerabilities_checkers.py
+
+from fastapi import APIRouter, Query
+from vulnerabilities import scan_domain
 
 router = APIRouter()
 
 @router.get("/vulnerabilities/{domain}")
-def vuln_card(domain: str):
-    # Hardwired checks for common missing headers
-    findings = []
-    # Example placeholder checks
-    findings.append({"type": "X-Content-Type-Options", "severity": "Medium"})
-    findings.append({"type": "Strict-Transport-Security", "severity": "High"})
-    return {"findings": findings}
+def vuln_card(domain: str = Query(...)):
+    """
+    Vulnerability card endpoint.
+    Delegates to authoritative scanners.
+    """
+    result = scan_domain(domain)
+    # Safe fallback
+    if not result or "findings" not in result or "counts" not in result:
+        return {"findings": [], "counts": {"critical": 0, "high": 0, "medium": 0, "low": 0}}
+    return result
