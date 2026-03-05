@@ -10,13 +10,13 @@
 
 <div class="p-6 max-w-5xl mx-auto">
   <h1 class="text-3xl font-bold text-[#0E4FAE] text-center mt-6 mb-4">
-    SitePulseAI Website Monitoring Agent
+    SitePulseAI Infrastructure visibility console
   </h1>
 
   <div class="mt-6 p-4 bg-[#111827] p-4 rounded shadow border-2 border-[#2563EB]">
     <div class="flex flex-col sm:flex-row sm:items-center gap-2">
       <input id="website-url" type="text" placeholder="Enter website URL" class="flex-1 px-4 py-2 rounded border border-green-300 bg-[#E6FFFA] text-green-900 focus:ring-2 focus:ring-green-400 focus:outline-none" />
-      <button onclick="startMonitoring()" class="bg-green-400 hover:bg-green-300 text-white font-semibold px-4 py-2 rounded shadow transition">Start Monitoring</button>
+      <button onclick="startMonitoring()" class="bg-green-400 hover:bg-green-300 text-white font-semibold px-4 py-2 rounded shadow transition">Initiate telemetry session</button>
     </div>
   </div>
 
@@ -61,7 +61,7 @@
   <div id="ssl-renewal-flag" class="ssl-renewal-flag"></div>
 
   <button id="auto-fix-ssl-btn" onclick="triggerSSLAutoFix()" class="mt-2 bg-blue-500 hover:bg-blue-400 text-white px-3 py-1 rounded">
-  Auto-Fix SSL
+  Assisted SSL Workflow
 </button>
 <div id="ssl-auto-fix-output" class="text-sm mt-2 text-yellow-400"></div>
 
