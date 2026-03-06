@@ -1,26 +1,38 @@
-import json
 import hashlib
+import json
 from datetime import datetime
+import os
 
+TELEMETRY_CERT_FOLDER = "telemetry_certificates"
 
-def generate_attestation(client_id, domain, telemetry_data):
+def generate_telemetry_attestation(client_id: str, domain: str, results: dict) -> str:
+    """
+    Generate a cryptographically verifiable telemetry certificate
+    Each certificate is saved to disk for auditing
+    """
 
-    timestamp = datetime.utcnow().isoformat()
+    os.makedirs(TELEMETRY_CERT_FOLDER, exist_ok=True)
 
-    payload = {
+    # Normalize payload for hashing
+    payload = json.dumps({
         "client_id": client_id,
         "domain": domain,
-        "timestamp": timestamp,
-        "telemetry": telemetry_data
-    }
+        "results": results,
+        "timestamp": datetime.utcnow().isoformat()
+    }, sort_keys=True)
 
-    payload_string = json.dumps(payload, sort_keys=True)
+    # Compute SHA256 hash
+    certificate = hashlib.sha256(payload.encode()).hexdigest()
 
-    signature = hashlib.sha256(payload_string.encode()).hexdigest()
-
-    certificate = {
-        "attestation": payload,
-        "signature": signature
-    }
+    # Save certificate for audit purposes
+    filename = f"{TELEMETRY_CERT_FOLDER}/{client_id}_{domain}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.json"
+    with open(filename, "w") as f:
+        json.dump({
+            "client_id": client_id,
+            "domain": domain,
+            "results": results,
+            "certificate": certificate,
+            "timestamp": datetime.utcnow().isoformat()
+        }, f, indent=4)
 
     return certificate
