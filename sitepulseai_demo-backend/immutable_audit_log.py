@@ -1,51 +1,35 @@
-import json
-import hashlib
 import os
+import json
 from datetime import datetime
+import gzip
+import shutil
 
-LOG_FOLDER = "logs"
-LOG_FILE = "audit_log.json"
+AUDIT_LOG_FOLDER = "audit_logs"
+MAX_LOG_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB per log file
 
+def _get_log_file_path():
+    os.makedirs(AUDIT_LOG_FOLDER, exist_ok=True)
+    path = os.path.join(AUDIT_LOG_FOLDER, "events.log")
+    return path
+
+def _rotate_log_if_needed():
+    path = _get_log_file_path()
+    if not os.path.exists(path):
+        return
+    if os.path.getsize(path) >= MAX_LOG_SIZE_BYTES:
+        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        compressed_path = os.path.join(AUDIT_LOG_FOLDER, f"events_{timestamp}.log.gz")
+        with open(path, "rb") as f_in, gzip.open(compressed_path, "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
+        # Clear the current log
+        open(path, "w").close()
 
 def write_audit_log(event_data: dict):
-
-    os.makedirs(LOG_FOLDER, exist_ok=True)
-
-    log_path = os.path.join(LOG_FOLDER, LOG_FILE)
-
-    timestamp = datetime.utcnow().isoformat()
-
-    record = {
-        "timestamp": timestamp,
-        "event": event_data
-    }
-
-    previous_hash = ""
-
-    if os.path.exists(log_path):
-
-        with open(log_path, "r") as f:
-            logs = json.load(f)
-
-        if logs:
-            previous_hash = logs[-1]["hash"]
-
-    else:
-        logs = []
-
-    record_string = json.dumps(record, sort_keys=True)
-
-    record_hash = hashlib.sha256(
-        (record_string + previous_hash).encode()
-    ).hexdigest()
-
-    entry = {
-        "record": record,
-        "previous_hash": previous_hash,
-        "hash": record_hash
-    }
-
-    logs.append(entry)
-
-    with open(log_path, "w") as f:
-        json.dump(logs, f, indent=4)
+    """
+    Append an immutable audit event
+    """
+    event_data["timestamp"] = datetime.utcnow().isoformat()
+    _rotate_log_if_needed()
+    path = _get_log_file_path()
+    with open(path, "a") as f:
+        f.write(json.dumps(event_data, sort_keys=True) + "\n")
