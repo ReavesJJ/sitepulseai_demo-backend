@@ -1,82 +1,145 @@
-import json
 import os
+import json
+import hashlib
+import uuid
+from datetime import datetime
 from fastapi import HTTPException
-from urllib.parse import urlparse
+from typing import List
 
+# -------------------------------
+# Configuration
+# -------------------------------
 LICENSE_FOLDER = "licenses"
+SECRET_KEY = "CHANGE_THIS_TO_LONG_RANDOM_SECRET"
 
-
-def normalize_domain(url: str):
+# -------------------------------
+# Utility Functions
+# -------------------------------
+def normalize_domain(url: str) -> str:
+    """
+    Normalize URLs for domain comparison (removes www., lowercase)
+    """
+    from urllib.parse import urlparse
     try:
         parsed = urlparse(url)
-
-        if parsed.netloc:
-            domain = parsed.netloc.lower()
-        else:
-            domain = parsed.path.lower()
-
-        domain = domain.replace("www.", "")
-        return domain
-
+        domain = parsed.netloc if parsed.netloc else parsed.path
+        return domain.lower().replace("www.", "")
     except Exception:
         return url.lower()
 
 
-def load_license(client_id):
+def generate_client_id(tier: str) -> str:
+    """
+    Generate a unique client ID per license
+    """
+    random_part = uuid.uuid4().hex[:8].upper()
+    return f"SPA-{tier.upper()}-{random_part}"
 
-    license_file = os.path.join(LICENSE_FOLDER, f"{client_id}.json")
 
-    if not os.path.exists(license_file):
+def _generate_signature(client_id, tier, domains, expiration_date):
+    """
+    Generate a SHA256 signature to verify license authenticity
+    """
+    payload = f"{client_id}{tier}{domains}{expiration_date}{SECRET_KEY}"
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _save_license(client_id: str, license_data: dict):
+    os.makedirs(LICENSE_FOLDER, exist_ok=True)
+    path = os.path.join(LICENSE_FOLDER, f"{client_id}.json")
+    with open(path, "w") as f:
+        json.dump(license_data, f, indent=4)
+
+
+def _load_license(client_id: str):
+    path = os.path.join(LICENSE_FOLDER, f"{client_id}.json")
+    if not os.path.exists(path):
         raise HTTPException(status_code=403, detail="License not found.")
-
-    with open(license_file, "r") as f:
+    with open(path, "r") as f:
         return json.load(f)
 
+# -------------------------------
+# Public License Functions
+# -------------------------------
+def create_license(tier: str, domains: List[str], expiration_date: str) -> str:
+    """
+    Creates a new license file and returns the client ID
+    """
+    client_id = generate_client_id(tier)
+    signature = _generate_signature(client_id, tier, domains, expiration_date)
+    license_data = {
+        "active": True,
+        "tier": tier.lower(),
+        "domains": domains,
+        "expiration_date": expiration_date,
+        "signature": signature,
+        "created_at": datetime.utcnow().isoformat(),
+        "features": tier_features(tier)
+    }
+    _save_license(client_id, license_data)
+    return client_id
 
-def validate_domain(client_id, requested_domain):
 
-    license_data = load_license(client_id)
+def get_license(client_id: str) -> dict:
+    """
+    Load and verify license. Checks expiration and signature.
+    """
+    license_data = _load_license(client_id)
 
-    allowed_domains = license_data.get("domains", [])
+    # Expiration enforcement
+    exp = datetime.strptime(license_data["expiration_date"], "%Y-%m-%d")
+    if datetime.utcnow() > exp:
+        license_data["active"] = False
+        _save_license(client_id, license_data)
+        raise HTTPException(status_code=403, detail="License expired.")
 
-    normalized_requested = normalize_domain(requested_domain)
+    # Signature verification
+    expected_sig = _generate_signature(
+        client_id,
+        license_data["tier"],
+        license_data["domains"],
+        license_data["expiration_date"]
+    )
+    if expected_sig != license_data.get("signature"):
+        raise HTTPException(status_code=403, detail="Invalid license signature.")
 
-    normalized_allowed = [normalize_domain(d) for d in allowed_domains]
+    return license_data
 
-    if normalized_requested not in normalized_allowed:
+
+def validate_domain(client_id: str, requested_domain: str):
+    """
+    Ensure client only monitors allowed domains
+    """
+    license_data = get_license(client_id)
+    allowed = [normalize_domain(d) for d in license_data.get("domains", [])]
+    req_norm = normalize_domain(requested_domain)
+    if req_norm not in allowed:
         raise HTTPException(
             status_code=403,
             detail=f"Domain '{requested_domain}' not allowed under this license."
         )
-
     return True
 
 
-def check_feature_access(client_id, feature):
-
-    license_data = load_license(client_id)
-
-    tier = license_data.get("tier")
-
-    tier_permissions = {
-
-        "tier_1": [
-            "ssl",
-            "uptime",
-            "seo",
-            "latency",
-            "traffic",
-            "vulnerabilities"
-        ]
-    }
-
-    allowed = tier_permissions.get(tier, [])
-
-    if feature not in allowed:
-
+def check_feature_access(client_id: str, feature: str):
+    """
+    Ensure feature is allowed under license tier
+    """
+    license_data = get_license(client_id)
+    if feature not in license_data.get("features", []):
         raise HTTPException(
             status_code=403,
-            detail=f"Feature '{feature}' not permitted under {tier} license."
+            detail=f"Feature '{feature}' not permitted under {license_data['tier']} license."
         )
-
     return True
+
+
+def tier_features(tier: str) -> List[str]:
+    """
+    Map tier names to allowed features
+    """
+    mapping = {
+        "tier_1": ["ssl", "uptime", "seo", "latency", "traffic", "vulnerabilities"],
+        # future tiers can be added here
+    }
+    return mapping.get(tier.lower(), [])
