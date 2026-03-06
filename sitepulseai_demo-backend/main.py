@@ -8,10 +8,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from urllib.parse import urlparse
 from typing import List
 from datetime import datetime
+from license_enforcer import validate_license
+from telemetry_attestation import generate_attestation
+from immutable_audit_log import write_audit_log
 import uuid
 import hashlib
 import json
 import os
+
+
+
+
 
 # ============================================================
 # ------------------ Persistence & License ------------------
@@ -165,6 +172,8 @@ from autofix_route import router as autofix_router
 from autofix_engine import execute_remediation
 from remediation_store import get_pending_remediations
 
+
+
 # ============================================================
 # ------------------ App Initialization --------------------
 # ============================================================
@@ -174,6 +183,25 @@ app = FastAPI(
     description="Licensed Monitoring Infrastructure Backend",
     version="3.2.0"
 )
+
+@app.get("/attestation")
+def get_attestation(domain: str):
+    
+    license_data = validate_license(domain)
+
+    if not license_data:
+        raise HTTPException(status_code=403, detail="License validation failed")
+
+    attestation = generate_attestation(domain)
+
+    write_audit_log({
+        "event": "attestation_generated",
+        "domain": domain,
+        "client_id": license_data["client_id"]
+    })
+
+    return attestation
+
 
 app.add_middleware(
     CORSMiddleware,
