@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 from typing import List
 from datetime import datetime
 from license_enforcer import validate_license
-from telemetry_attestation import generate_attestation
+from attestation import generate_attestation
 from immutable_audit_log import write_audit_log
 import uuid
 import hashlib
