@@ -4,9 +4,7 @@
 # ============================================================
 
 import os
-import uuid
 import json
-import hashlib
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,76 +44,6 @@ from license_enforcer import (
     check_feature_access
 )
 
-# ============================================================
-# Licensed Monitoring Infrastructure Telemetry Layer
-# Telemetry Event Record System (Hash-Chained Infrastructure Telemetry)
-# ============================================================
-
-def get_last_event_hash(log_file):
-    """
-    Retrieves the hash of the last telemetry event for chain integrity.
-    """
-
-    if not os.path.exists(log_file):
-        return "GENESIS"
-
-    try:
-        with open(log_file, "r") as f:
-            lines = f.readlines()
-            if not lines:
-                return "GENESIS"
-
-            last_event = json.loads(lines[-1])
-            return last_event.get("event_hash", "GENESIS")
-
-    except Exception:
-        return "GENESIS"
-
-
-def generate_telemetry_event_record(client_id, domain, results):
-    """
-    Generates a hash-chained Telemetry Event Record.
-    """
-
-    os.makedirs("telemetry_events", exist_ok=True)
-    log_file = os.path.join("telemetry_events", "telemetry_event_log.json")
-
-    event_id = f"SP-{uuid.uuid4().hex[:10].upper()}"
-    timestamp = datetime.utcnow().isoformat()
-
-    previous_hash = get_last_event_hash(log_file)
-
-    event_record = {
-        "event_type": "monitoring_event",
-        "event_id": event_id,
-        "timestamp": timestamp,
-        "client_id": client_id,
-        "domain": domain,
-        "monitoring_agent": "SitePulseAI Node",
-        "previous_event_hash": previous_hash,
-        "results_snapshot": results
-    }
-
-    # Create new hash including previous hash
-    event_string = json.dumps(event_record, sort_keys=True)
-    event_hash = hashlib.sha256(event_string.encode()).hexdigest()
-
-    event_record["event_hash"] = event_hash
-
-    return event_record
-
-
-def write_telemetry_event_record(event_record):
-    """
-    Append Telemetry Event Record to chained telemetry log.
-    """
-
-    os.makedirs("telemetry_events", exist_ok=True)
-    log_file = os.path.join("telemetry_events", "telemetry_event_log.json")
-
-    with open(log_file, "a") as f:
-        f.write(json.dumps(event_record) + "\n")
-
 # -----------------------
 # FastAPI app initialization
 # -----------------------
@@ -148,6 +76,13 @@ app.include_router(latency_router)
 app.include_router(autofix_router)
 
 # -----------------------
+# Telemetry Event storage path
+# -----------------------
+TELEMETRY_DIR = "telemetry_events"
+TELEMETRY_FILE = os.path.join(TELEMETRY_DIR, "telemetry_event_log.json")
+os.makedirs(TELEMETRY_DIR, exist_ok=True)
+
+# -----------------------
 # Root / health endpoints
 # -----------------------
 @app.get("/health")
@@ -163,7 +98,7 @@ async def root():
     }
 
 # -----------------------
-# Monitoring endpoint example
+# Monitoring endpoint
 # -----------------------
 @app.post("/monitor")
 def monitor(client_id: str = Query(...), domain: str = Query(...)):
@@ -215,19 +150,46 @@ def monitor(client_id: str = Query(...), domain: str = Query(...)):
         "tier": license_data["tier"]
     })
 
-    # ============================================================
-    # Telemetry Event Record (Infrastructure Telemetry Layer)
-    # ============================================================
+    # -----------------------
+    # Telemetry Event Record
+    # -----------------------
+    try:
+        # Load previous telemetry events if they exist
+        if os.path.exists(TELEMETRY_FILE):
+            with open(TELEMETRY_FILE, "r") as f:
+                telemetry_events = json.load(f)
+        else:
+            telemetry_events = []
 
-    telemetry_event = generate_telemetry_event_record(
-        client_id,
-        domain,
-        results
-    )
+        previous_hash = telemetry_events[-1]["event_hash"] if telemetry_events else "GENESIS"
 
-    write_telemetry_event_record(telemetry_event)
+        # Create new event
+        event_record = {
+            "event_type": "monitoring_event",
+            "event_id": f"SP-{os.urandom(4).hex().upper()}",
+            "timestamp": datetime.utcnow().isoformat(),
+            "client_id": client_id,
+            "domain": domain,
+            "monitoring_agent": "SitePulseAI Node",
+            "previous_event_hash": previous_hash,
+            "results_snapshot": results
+        }
 
-    results["telemetry_event_record"] = telemetry_event
+        # Generate hash for event (simple SHA256)
+        import hashlib
+        event_string = json.dumps(event_record, sort_keys=True, default=str)
+        event_hash = hashlib.sha256(event_string.encode()).hexdigest()
+        event_record["event_hash"] = event_hash
+
+        # Append and persist
+        telemetry_events.append(event_record)
+        with open(TELEMETRY_FILE, "w") as f:
+            json.dump(telemetry_events, f, indent=2, default=str)
+
+        results["telemetry_event_record"] = event_record
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Telemetry Event failed: {e}")
 
     # -----------------------
     # Telemetry attestation certificate
@@ -238,7 +200,21 @@ def monitor(client_id: str = Query(...), domain: str = Query(...)):
     return results
 
 # -----------------------
-# License generation endpoint (POST)
+# Endpoint to get latest telemetry event
+# -----------------------
+@app.get("/telemetry/latest")
+def latest_telemetry():
+    if not os.path.exists(TELEMETRY_FILE):
+        raise HTTPException(status_code=404, detail="No telemetry events found")
+    with open(TELEMETRY_FILE, "r") as f:
+        telemetry_events = json.load(f)
+    return {
+        "status": "ok",
+        "latest_telemetry_event": telemetry_events[-1]
+    }
+
+# -----------------------
+# License generation endpoint
 # -----------------------
 @app.post("/generate_license")
 def generate_license(tier: str = Query(...), domains: str = Query(...), expiration_date: str = Query(...)):
@@ -264,7 +240,7 @@ async def startup_event():
     print("📦 Persistence layer ready.")
     print("🤖 Auto-Fix engine ready (skeleton).")
     os.makedirs("licenses", exist_ok=True)
-    os.makedirs("telemetry_events", exist_ok=True)
+    os.makedirs(TELEMETRY_DIR, exist_ok=True)
 
 @app.on_event("shutdown")
 async def shutdown_event():
