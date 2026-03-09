@@ -97,6 +97,7 @@ async def root():
         "version": "2.3.0"
     }
 
+
 # -----------------------
 # Monitoring endpoint
 # -----------------------
@@ -112,6 +113,7 @@ def monitor(client_id: str = Query(...), domain: str = Query(...)):
     # 3️⃣ Prepare results dict
     results = {"domain": domain, "timestamp": datetime.utcnow().isoformat()}
     features = license_data["features"]
+
 
     # -----------------------
     # Tier / feature enforcement
