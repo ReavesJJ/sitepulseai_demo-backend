@@ -1,3 +1,4 @@
+# License_enforcer.py
 import os
 import json
 import hashlib
@@ -36,11 +37,11 @@ def generate_client_id(tier: str) -> str:
     return f"SPA-{tier.upper()}-{random_part}"
 
 
-def _generate_signature(client_id, tier, domains, expiration_date):
+def _generate_signature(client_id: str, tier: str, domains: List[str], expiration_date: str) -> str:
     """
     Generate a SHA256 signature to verify license authenticity
     """
-    payload = f"{client_id}{tier}{domains}{expiration_date}{SECRET_KEY}"
+    payload = f"{client_id}{tier}{','.join(domains)}{expiration_date}{SECRET_KEY}"
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -51,7 +52,7 @@ def _save_license(client_id: str, license_data: dict):
         json.dump(license_data, f, indent=4)
 
 
-def _load_license(client_id: str):
+def _load_license(client_id: str) -> dict:
     path = os.path.join(LICENSE_FOLDER, f"{client_id}.json")
     if not os.path.exists(path):
         raise HTTPException(status_code=403, detail="License not found.")
@@ -143,3 +144,26 @@ def tier_features(tier: str) -> List[str]:
         # future tiers can be added here
     }
     return mapping.get(tier.lower(), [])
+
+
+# -------------------------------
+# Optional: Dynamic Registration Helper
+# -------------------------------
+def add_client(client_id: str, tier: str, domains: List[str], expiration_date: str):
+    """
+    Manually add a new client to the licenses folder
+    """
+    if os.path.exists(os.path.join(LICENSE_FOLDER, f"{client_id}.json")):
+        raise HTTPException(status_code=400, detail="Client ID already exists.")
+    signature = _generate_signature(client_id, tier, domains, expiration_date)
+    license_data = {
+        "active": True,
+        "tier": tier.lower(),
+        "domains": domains,
+        "expiration_date": expiration_date,
+        "signature": signature,
+        "created_at": datetime.utcnow().isoformat(),
+        "features": tier_features(tier)
+    }
+    _save_license(client_id, license_data)
+    return client_id
