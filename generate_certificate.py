@@ -93,7 +93,7 @@ def generate_certificate(site, uptime="100%", ssl="Valid"):
 
     draw.text(
         (200, 710),
-        "Issued by SitePulseAI Licensed Operational Monitoring Infrastructure",
+        "Issued by SitePulseAI Licensed Monitoring Infrastructure",
         fill="white",
         font=small_font
     )
