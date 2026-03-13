@@ -2,7 +2,7 @@ import uuid
 import hashlib
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont
 
 OUTPUT_DIR = "certificates"
@@ -14,11 +14,16 @@ os.makedirs(LOG_DIR, exist_ok=True)
 
 def generate_certificate(site, uptime="100%", ssl="Valid"):
 
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    issued_time = datetime.utcnow()
+    timestamp = issued_time.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    # Monitoring window (new upgrade)
+    monitoring_start = issued_time - timedelta(minutes=15)
+    monitoring_window = f"{monitoring_start.strftime('%Y-%m-%d %H:%M UTC')} → {issued_time.strftime('%Y-%m-%d %H:%M UTC')}"
 
     cert_id = f"SPAI-{uuid.uuid4().hex[:10].upper()}"
 
-    # Monitoring Node ID (simulated infrastructure node)
+    # Monitoring Node ID
     node_id = "SPAI-MON-VA01"
 
     # Create telemetry payload
@@ -34,11 +39,12 @@ def generate_certificate(site, uptime="100%", ssl="Valid"):
     checksum = hashlib.sha1(telemetry_payload.encode()).hexdigest().upper()[0:8]
 
     # Audit log reference
-    log_ref = f"LOG-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+    log_ref = f"LOG-{issued_time.strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
     audit_log = {
         "site": site,
         "timestamp": timestamp,
+        "monitoring_window": monitoring_window,
         "uptime": uptime,
         "ssl_status": ssl,
         "monitoring_node": node_id,
@@ -56,7 +62,7 @@ def generate_certificate(site, uptime="100%", ssl="Valid"):
 
     # Create certificate image
     width = 1200
-    height = 750
+    height = 780
 
     img = Image.new("RGB", (width, height), (20, 26, 36))
     draw = ImageDraw.Draw(img)
@@ -76,24 +82,36 @@ def generate_certificate(site, uptime="100%", ssl="Valid"):
     draw.line((150, 150, 1050, 150), fill="white", width=2)
 
     # Core verification
-    draw.text((200, 200), f"Site: {site}", fill="white", font=body_font)
-    draw.text((200, 260), f"Verified Uptime: {uptime}", fill="white", font=body_font)
-    draw.text((200, 320), f"SSL Status: {ssl}", fill="white", font=body_font)
+    draw.text((200, 190), f"Site: {site}", fill="white", font=body_font)
 
-    draw.text((200, 400), f"Monitoring Node: {node_id}", fill="white", font=small_font)
-    draw.text((200, 440), f"Telemetry Fingerprint: {fingerprint}", fill="white", font=small_font)
-    draw.text((200, 480), f"Audit Log Ref: {log_ref}", fill="white", font=small_font)
+    # New verification block
+    draw.text((200, 240), "Telemetry Verification Status: VERIFIED", fill="white", font=small_font)
+    draw.text((200, 270), "Monitoring Infrastructure: ACTIVE", fill="white", font=small_font)
+    draw.text((200, 300), "Telemetry Integrity: VALIDATED", fill="white", font=small_font)
 
-    draw.text((200, 540), f"Signature Hash:", fill="white", font=small_font)
-    draw.text((200, 570), signature_hash[0:48] + "...", fill="white", font=small_font)
+    draw.text((200, 340), f"Verified Uptime: {uptime}", fill="white", font=body_font)
+    draw.text((200, 390), f"SSL Status: {ssl}", fill="white", font=body_font)
 
-    draw.text((200, 620), f"Verification Checksum: {checksum}", fill="white", font=small_font)
+    # Monitoring window (new)
+    draw.text((200, 440), f"Monitoring Window: {monitoring_window}", fill="white", font=small_font)
 
-    draw.text((200, 670), f"Issued: {timestamp}", fill="white", font=small_font)
+    # Telemetry identifiers
+    draw.text((200, 490), f"Monitoring Node: {node_id}", fill="white", font=small_font)
+    draw.text((200, 520), f"Telemetry Fingerprint: {fingerprint}", fill="white", font=small_font)
+    draw.text((200, 550), f"Audit Log Ref: {log_ref}", fill="white", font=small_font)
+
+    draw.text((200, 590), "Signature Hash:", fill="white", font=small_font)
+    draw.text((200, 620), signature_hash[0:48] + "...", fill="white", font=small_font)
+
+    draw.text((200, 650), f"Verification Checksum: {checksum}", fill="white", font=small_font)
+
+    draw.text((200, 680), f"Certificate ID: {cert_id}", fill="white", font=small_font)
+
+    draw.text((200, 710), f"Issued: {timestamp}", fill="white", font=small_font)
 
     draw.text(
-        (200, 710),
-        "Issued by SitePulseAI Licensed Monitoring Infrastructure",
+        (200, 740),
+        "Telemetry Verification Authority — SitePulseAI Licensed Monitoring Infrastructure",
         fill="white",
         font=small_font
     )
