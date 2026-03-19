@@ -14,7 +14,9 @@ def generate_license():
         "client_id": "SPA-TIER_1-1333C7FB",
         "tier": "tier_1",
         "domains": [
-            "sitepulseai.com"
+            "sitepulseai.com",
+            "api.sitepulseai.com"
+
         ],
         "max_sites": 5,
         "expiration_date": "2027-12-31",
