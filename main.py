@@ -8,6 +8,10 @@ import json
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from monitoring_engine import start_monitoring
+
+if __name__ == "__main__":
+    start_monitoring()
 
 # -----------------------
 # Routers for each card
