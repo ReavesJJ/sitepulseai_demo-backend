@@ -10,13 +10,13 @@
 
 <div class="p-6 max-w-5xl mx-auto">
   <h1 class="text-3xl font-bold text-[#0E4FAE] text-center mt-6 mb-4">
-    SitePulseAI Infrastructure visibility console
+    SitePulseAI Infrastructure Visibility Console
   </h1>
 
   <div class="mt-6 p-4 bg-[#111827] p-4 rounded shadow border-2 border-[#2563EB]">
     <div class="flex flex-col sm:flex-row sm:items-center gap-2">
       <input id="website-url" type="text" placeholder="Enter website URL" class="flex-1 px-4 py-2 rounded border border-green-300 bg-[#E6FFFA] text-green-900 focus:ring-2 focus:ring-green-400 focus:outline-none" />
-      <button onclick="startMonitoring()" class="bg-green-400 hover:bg-green-300 text-white font-semibold px-4 py-2 rounded shadow transition">Initiate telemetry session</button>
+      <button onclick="startMonitoring()" class="bg-green-400 hover:bg-green-300 text-white font-semibold px-4 py-2 rounded shadow transition">Enable Monitoring</button>
     </div>
   </div>
 
@@ -27,6 +27,7 @@
     </div>
     <ul id="multi-url-list" class="pl-6 mt-4 space-y-1 text-gray-700 text-sm"></ul>
   </div>
+  
 
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
     <div class="bg-[#111827] p-4 rounded shadow border-2 border-[#2563EB]">
@@ -245,6 +246,61 @@ cards.aiSuggestions.textContent = "AI Recommendations will populate here.";
     alert("Monitoring failed — check backend or DevTools for details.");
   }
 }
+
+
+async function addAdditionalURL() {
+  const input = document.getElementById("multi-url-input");
+  const raw = input.value.trim();
+
+  if (!raw) {
+    alert("Please enter at least one domain");
+    return;
+  }
+
+  // 🔹 Split by comma and clean
+  const domains = raw.split(",")
+    .map(d => d.trim())
+    .filter(d => d.length > 0);
+
+  const list = document.getElementById("multi-url-list");
+
+  for (const domain of domains) {
+    try {
+      const res = await fetch("/add-site", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ domain })
+      });
+
+      const data = await res.json();
+
+      const li = document.createElement("li");
+
+      if (data.status === "success") {
+        li.textContent = `✅ ${domain}`;
+        li.style.color = "#22c55e"; // green
+      } else {
+        li.textContent = `❌ ${domain} — ${data.message}`;
+        li.style.color = "#ef4444"; // red
+      }
+
+      list.appendChild(li);
+
+    } catch (err) {
+      const li = document.createElement("li");
+      li.textContent = `❌ ${domain} — request failed`;
+      li.style.color = "#ef4444";
+      list.appendChild(li);
+    }
+  }
+
+  // Clear input after processing
+  input.value = "";
+}
+
+
 
 /* ---------------------------
    EVENT WIRING
