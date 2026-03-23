@@ -2,6 +2,11 @@ import httpx
 from bs4 import BeautifulSoup
 import time
 
+
+def run_full_check(url: str):
+    ...
+
+
 def check_website(url: str):
     result = {
         "url": url,
