@@ -298,6 +298,16 @@ async def root():
     }
 
 
+@app.get("/segments")
+def get_segments():
+    try:
+        with open("domains.json", "r") as f:
+            data = json.load(f)
+            return data
+    except:
+        return {"segments": {"default": []}}
+
+
 # ============================================================
 # FASTAPI STARTUP / SHUTDOWN
 # ============================================================
