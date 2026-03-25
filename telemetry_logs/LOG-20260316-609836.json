@@ -1,0 +1,13 @@
+{
+    "site": "example.com",
+    "timestamp": "2026-03-16 19:48:38 UTC",
+    "monitoring_window": "2026-03-16 19:33 UTC \u2192 2026-03-16 19:48 UTC",
+    "uptime": "100%",
+    "ssl_status": "Valid",
+    "monitoring_node": "SPAI-MON-VA01",
+    "telemetry_fingerprint": "5FEBFC5D3C3FA5E5",
+    "signature_hash": "ceb4f1dff4e850174c3a148f97ffe94f86d1679bd53ee27cd370c08ce7ab3188",
+    "verification_checksum": "93EC3878",
+    "certificate_id": "SPAI-E2F0C9B586",
+    "audit_log_reference": "LOG-20260316-609836"
+}
