@@ -1,0 +1,12 @@
+{
+  "client_id": "SPA-TIER_1-1333C7FB",
+  "tier": "tier_1",
+  "domains": [
+    "sitepulseai.com",
+    "api.sitepulseai.com"
+  ],
+  "max_sites": 5,
+  "expiration_date": "2027-12-31",
+  "issued_at": "2026-03-19T02:37:40.033744",
+  "signature": "47fb7b9b72a04b402e8f589eec6a53d8f1aea751e4a734c35d0fa16c9aac1755"
+}
