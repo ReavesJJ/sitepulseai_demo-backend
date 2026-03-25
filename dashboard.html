@@ -105,104 +105,52 @@
 
 
 <script>
-/* ============================================================
-   SitePulseAI Dashboard Runtime (Standalone • Autonomous)
-   ============================================================ */
+// ===========================================
+// SitePulseAI Frontend: Autonomous Add URL
+// ===========================================
 
-const API_BASE = "https://sitepulseai-demo-backend.onrender.com"; // Render backend URL
+const API_BASE = "https://sitepulseai-demo-backend.onrender.com"; // your Render backend URL
+const websiteInput = document.getElementById("website-url-input"); // input field
+const addButton = document.getElementById("add-url-button"); // Add URL button
+const dashboardContainer = document.getElementById("dashboard-container"); // where cards render
 
-/* ---------------------------
-   DOM REFERENCES
----------------------------- */
-const websiteInput = document.getElementById("website-url");
-const startBtn = document.querySelector("button[onclick='startMonitoring()']");
-
-/* Card fields */
-const cards = {
-  uptime: document.getElementById("uptime"),
-  latency: document.getElementById("response"),
-  ssl: document.getElementById("ssl"),
-  sslManaged: document.getElementById("ssl-managed"),
-  sslExpires: document.getElementById("ssl-renewed"),
-  seo: document.getElementById("seo"),
-  vulnerabilities: document.getElementById("vulnerabilities"),
-  traffic: document.getElementById("site-traffic"),
-  aiSummary: document.getElementById("ai-summary"),
-  aiSuggestions: document.getElementById("ai-suggestions")
-};
-
-/* ---------------------------
-   UTILITY FUNCTIONS
----------------------------- */
+// ---------------------------
+// Utility to normalize domain
+// ---------------------------
 function normalizeDomain(url) {
   try {
-    return new URL(url).hostname;
+    let u = new URL(url);
+    return u.hostname;
   } catch {
-    alert("Invalid URL");
-    throw new Error("Invalid URL");
+    // fallback if user omits protocol
+    return url.replace(/^(https?:\/\/)?(www\.)?/, "").split("/")[0];
   }
 }
 
-async function fetchJSON(endpoint) {
+// ---------------------------
+// Fetch wrapper
+// ---------------------------
+async function fetchJSON(path) {
+  const res = await fetch(`${API_BASE}${path}`);
+  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+  return res.json();
+}
+
+// ---------------------------
+// Render card functions (replace with your existing render logic)
+// ---------------------------
+function renderUptime(data) { console.log("Uptime:", data); }
+function renderLatency(data) { console.log("Latency:", data); }
+function renderSSL(data) { console.log("SSL:", data); }
+function renderSEO(data) { console.log("SEO:", data); }
+function renderVulnerabilities(data) { console.log("Vulnerabilities:", data); }
+function renderTraffic(data) { console.log("Traffic:", data); }
+
+// ---------------------------
+// Fetch all metrics for a domain
+// ---------------------------
+async function fetchAllMetrics(domain) {
   try {
-    const res = await fetch(API_BASE + endpoint);
-    if (!res.ok) throw new Error(`Endpoint failed: ${endpoint}`);
-    return res.json();
-  } catch (err) {
-    console.warn(err.message);
-    return null; // fail gracefully
-  }
-}
-
-/* ---------------------------
-   RENDER FUNCTIONS
----------------------------- */
-function renderUptime(data) {
-  cards.uptime.textContent = data?.status ?? "UNKNOWN";
-}
-
-function renderLatency(data) {
-  cards.latency.textContent = data?.response_time_ms
-    ? `${data.response_time_ms} ms`
-    : "— ms";
-}
-
-function renderSSL(data) {
-  cards.ssl.textContent = `Status: ${data?.valid ? "Valid" : "Invalid"}`;
-  cards.sslManaged.textContent = `Managed: ${data?.managed ? "Yes" : "No"}`;
-  cards.sslExpires.textContent = `Expires in: ${data?.expires_in_days ?? "—"} days`;
-}
-
-function renderSEO(data) {
-  cards.seo.textContent = data?.score
-    ? `Score: ${data.score}`
-    : "Not scanned";
-}
-
-function renderVulnerabilities(data) {
-  cards.vulnerabilities.textContent = Array.isArray(data?.findings)
-    ? data.findings.length
-    : 0;
-}
-
-function renderTraffic(data) {
-  cards.traffic.textContent = data?.visits ?? "—";
-}
-
-/* ---------------------------
-   CORE MONITORING LOGIC
----------------------------- */
-async function startMonitoring() {
-  const url = websiteInput.value.trim();
-  if (!url) {
-    alert("Please enter a website URL");
-    return;
-  }
-
-  const domain = normalizeDomain(url);
-
-  try {
-    // Fetch all metrics concurrently
     const [
       uptimeData,
       latencyData,
@@ -219,33 +167,66 @@ async function startMonitoring() {
       fetchJSON(`/traffic/${domain}`)
     ]);
 
-    // Render cards
+    // Render all cards
     renderUptime(uptimeData);
     renderLatency(latencyData);
     renderSSL(sslData);
     renderSEO(seoData);
     renderVulnerabilities(vulnData);
     renderTraffic(trafficData);
-
-
-    // Auto-Fix intentionally disabled by default
-// Use recommendations only
-
-// Auto-Fix intentionally disabled by default
-// Use recommendations only
-
-// AI cards placeholders
-cards.aiSummary.textContent = "AI Summary will populate here.";
-cards.aiSuggestions.textContent = "AI Recommendations will populate here.";
-
-
-
-
   } catch (err) {
-    console.error("Monitoring failed:", err);
-    alert("Monitoring failed — check backend or DevTools for details.");
+    console.error("Error fetching metrics for", domain, err);
+    alert(`Failed to fetch metrics for ${domain}: ${err.message}`);
   }
 }
+
+// ---------------------------
+// Add URL and trigger autonomous monitoring
+// ---------------------------
+async function addUrl() {
+  const url = websiteInput.value.trim();
+  if (!url) {
+    alert("Please enter a website URL");
+    return;
+  }
+
+  const domain = normalizeDomain(url);
+
+  try {
+    // 1️⃣ Call backend /add_url
+    const res = await fetch(`${API_BASE}/add_url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Failed to add domain");
+
+    console.log(`Domain added: ${domain}`);
+
+    // 2️⃣ Immediately fetch metrics for this domain
+    await fetchAllMetrics(domain);
+
+    // 3️⃣ Clear input field
+    websiteInput.value = "";
+
+  } catch (err) {
+    console.error("Add URL failed:", err);
+    alert(`Add URL failed: ${err.message}`);
+  }
+}
+
+// ---------------------------
+// Attach click handler
+// ---------------------------
+addButton.addEventListener("click", addUrl);
+
+// Optional: allow Enter key to add URL
+websiteInput.addEventListener("keypress", (e) => {
+  if (e.key === "Enter") addUrl();
+});
+
 
 
 async function addAdditionalURL() {
