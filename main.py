@@ -15,7 +15,7 @@ from pydantic import BaseModel
 # -----------------------
 # Existing monitoring engine
 # -----------------------
-from monitoring_engine import run_full_check, get_all_sites
+from monitoring_engine import add_domain_to_monitoring
 
 # -----------------------
 # Routers for each card
@@ -232,39 +232,43 @@ class DomainRequest(BaseModel):
 # Add URL endpoint
 @app.post("/add_url")
 def add_url(request: DomainRequest):
+    
     domain = request.domain.strip()
 
     is_new = domain not in monitored_domains
 
-    # Add if new
     if is_new:
         monitored_domains.append(domain)
         with open(DOMAINS_FILE, "w") as f:
             json.dump(monitored_domains, f, indent=2)
 
-    # 🔥 ALWAYS run monitoring (new OR existing)
-    try:
-        results = run_full_check(domain)
-        print(f"[Monitoring Triggered] {domain}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Monitoring failed: {e}")
+    # 🔥 Use monitoring engine
+    results = add_domain_to_monitoring(domain)
 
     return {
         "status": "added" if is_new else "already_exists",
         "domain": domain,
-        "monitoring": "triggered",
+        "monitoring": "active",
         "results": results
     }
 
 
 # Internal monitoring trigger
 def run_monitor(domain):
+    from monitoring_engine import run_full_check
     try:
-        run_full_check(domain)  # directly call existing function
-        print(f"[Monitor OK] {domain}")
+        results = run_full_check(domain)  # ✅ capture result
+
+        if results:
+            print(f"[Monitor OK] {domain}")
+        else:
+            print(f"[Monitor Warning] {domain} returned no results")
+
+        return results  # ✅ return it
+
     except Exception as e:
         print(f"[Monitor Exception] {domain}: {e}")
-
+        return None
 
 # Background autonomous monitoring loop
 def monitoring_loop():
