@@ -184,32 +184,33 @@ async function fetchAllMetrics(domain) {
 // Add URL and trigger autonomous monitoring
 // ---------------------------
 async function addUrl() {
-  const url = websiteInput.value.trim();
-  if (!url) {
-    alert("Please enter a website URL");
+  const domain = normalizeDomain(websiteInput.value);
+
+  const res = await fetch(`${API_BASE}/add_url`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ domain })
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    alert(data.detail);
     return;
   }
 
-  const domain = normalizeDomain(url);
+  console.log("Monitoring Results:", data.results);
 
-  try {
-    // 1️⃣ Call backend /add_url
-    const res = await fetch(`${API_BASE}/add_url`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domain })
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Failed to add domain");
-
-    console.log(`Domain added: ${domain}`);
-
-    // 2️⃣ Immediately fetch metrics for this domain
-    await fetchAllMetrics(domain);
-
-    // 3️⃣ Clear input field
-    websiteInput.value = "";
+  // 🔥 Render everything from ONE response
+  renderUptime(data.results.uptime);
+  renderLatency(data.results.latency);
+  renderSSL(data.results.ssl);
+  renderSEO(data.results.seo);
+  renderVulnerabilities(data.results.vulnerabilities);
+  renderTraffic(data.results.traffic);
+}
 
   } catch (err) {
     console.error("Add URL failed:", err);
