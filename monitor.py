@@ -1,8 +1,10 @@
+import time
 import httpx
 from bs4 import BeautifulSoup
-import time
 
-
+# ---------------------------
+# Single website check
+# ---------------------------
 def check_website(url: str):
     result = {
         "url": url,
@@ -39,15 +41,28 @@ def check_website(url: str):
 
     return result
 
-
+# ---------------------------
+# Full check for a domain
+# ---------------------------
 def run_full_check(domain):
+    """
+    Runs all monitoring checks for a single domain.
+    Returns a dictionary of results.
+    """
     results = {}
 
-    # your checks...
+    # 1️⃣ Core website check
+    website_metrics = check_website(f"https://{domain}")
+    results["website"] = website_metrics
 
-    return results  # 🔥 REQUIRED
+    # 2️⃣ Placeholder for other metrics (SSL, uptime, vulnerabilities, etc.)
+    # These can be filled with actual functions later
+    # Example:
+    # results["ssl"] = check_ssl(domain)
+    # results["uptime"] = check_uptime(domain)
+    # results["seo"] = check_seo(domain)
 
-
+    return results
 
 
 
