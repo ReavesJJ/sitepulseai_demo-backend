@@ -3,10 +3,6 @@ from bs4 import BeautifulSoup
 import time
 
 
-def run_full_check(url: str):
-    ...
-
-
 def check_website(url: str):
     result = {
         "url": url,
@@ -42,3 +38,18 @@ def check_website(url: str):
         result["alerts"].append(f"Error: {str(e)}")
 
     return result
+
+
+def run_full_check(domain):
+    results = {}
+
+    # your checks...
+
+    return results  # 🔥 REQUIRED
+
+
+
+
+
+
+
