@@ -6,12 +6,16 @@
 import os
 import json
 from datetime import datetime
+import threading
+import time
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from monitoring_engine import start_monitoring
+from pydantic import BaseModel
 
-if __name__ == "__main__":
-    start_monitoring()
+# -----------------------
+# Existing monitoring engine
+# -----------------------
+from monitoring_engine import run_full_check, get_all_sites
 
 # -----------------------
 # Routers for each card
@@ -86,25 +90,9 @@ TELEMETRY_DIR = "telemetry_events"
 TELEMETRY_FILE = os.path.join(TELEMETRY_DIR, "telemetry_event_log.json")
 os.makedirs(TELEMETRY_DIR, exist_ok=True)
 
-# -----------------------
-# Root / health endpoints
-# -----------------------
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-@app.get("/")
-async def root():
-    return {
-        "status": "ok",
-        "message": "SitePulseAI Backend running",
-        "version": "2.3.0"
-    }
-
-
-# -----------------------
-# Monitoring endpoint
-# -----------------------
+# ============================================================
+# Existing /monitor endpoint
+# ============================================================
 @app.post("/monitor")
 def monitor(client_id: str = Query(...), domain: str = Query(...)):
 
@@ -117,7 +105,6 @@ def monitor(client_id: str = Query(...), domain: str = Query(...)):
     # 3️⃣ Prepare results dict
     results = {"domain": domain, "timestamp": datetime.utcnow().isoformat()}
     features = license_data["features"]
-
 
     # -----------------------
     # Tier / feature enforcement
@@ -160,7 +147,6 @@ def monitor(client_id: str = Query(...), domain: str = Query(...)):
     # Telemetry Event Record
     # -----------------------
     try:
-        # Load previous telemetry events if they exist
         if os.path.exists(TELEMETRY_FILE):
             with open(TELEMETRY_FILE, "r") as f:
                 telemetry_events = json.load(f)
@@ -169,7 +155,6 @@ def monitor(client_id: str = Query(...), domain: str = Query(...)):
 
         previous_hash = telemetry_events[-1]["event_hash"] if telemetry_events else "GENESIS"
 
-        # Create new event
         event_record = {
             "event_type": "monitoring_event",
             "event_id": f"SP-{os.urandom(4).hex().upper()}",
@@ -181,13 +166,11 @@ def monitor(client_id: str = Query(...), domain: str = Query(...)):
             "results_snapshot": results
         }
 
-        # Generate hash for event (simple SHA256)
         import hashlib
         event_string = json.dumps(event_record, sort_keys=True, default=str)
         event_hash = hashlib.sha256(event_string.encode()).hexdigest()
         event_record["event_hash"] = event_hash
 
-        # Append and persist
         telemetry_events.append(event_record)
         with open(TELEMETRY_FILE, "w") as f:
             json.dump(telemetry_events, f, indent=2, default=str)
@@ -224,16 +207,75 @@ def latest_telemetry():
 # -----------------------
 @app.post("/generate_license")
 def generate_license(tier: str = Query(...), domains: str = Query(...), expiration_date: str = Query(...)):
-    """
-    Example: /generate_license?tier=tier_1&domains=sitepulseai.com&expiration_date=2027-12-31
-    """
     domains_list = [d.strip() for d in domains.split(",")]
     client_id = create_license(tier, domains_list, expiration_date)
     return {"client_id": client_id, "tier": tier, "domains": domains_list, "expiration_date": expiration_date}
 
-# -----------------------
-# Startup / shutdown events
-# -----------------------
+# ============================================================
+# AUTONOMOUS MONITORING INTEGRATION
+# ============================================================
+
+# Persistent domain storage
+DOMAINS_FILE = "monitored_domains.json"
+MONITOR_INTERVAL = 300  # seconds (5 min)
+try:
+    with open(DOMAINS_FILE, "r") as f:
+        monitored_domains = json.load(f)
+except FileNotFoundError:
+    monitored_domains = []
+
+# Domain model for /add_url
+class DomainRequest(BaseModel):
+    domain: str
+
+# Add URL endpoint
+@app.post("/add_url")
+def add_url(request: DomainRequest):
+    domain = request.domain.strip()
+    if domain in monitored_domains:
+        raise HTTPException(status_code=400, detail="Domain already monitored")
+
+    monitored_domains.append(domain)
+    with open(DOMAINS_FILE, "w") as f:
+        json.dump(monitored_domains, f, indent=2)
+    return {"status": "success", "domain": domain}
+
+# Internal monitoring trigger
+def run_monitor(domain):
+    try:
+        run_full_check(domain)  # directly call existing function
+        print(f"[Monitor OK] {domain}")
+    except Exception as e:
+        print(f"[Monitor Exception] {domain}: {e}")
+
+# Background autonomous monitoring loop
+def monitoring_loop():
+    while True:
+        for domain in monitored_domains:
+            run_monitor(domain)
+        time.sleep(MONITOR_INTERVAL)
+
+# Start background loop in daemon thread
+threading.Thread(target=monitoring_loop, daemon=True).start()
+
+# ============================================================
+# ROOT / HEALTH ENDPOINTS
+# ============================================================
+@app.get("/health")
+def health_check():
+    return {"status": "OK", "monitored_domains_count": len(monitored_domains)}
+
+@app.get("/")
+async def root():
+    return {
+        "status": "ok",
+        "message": "SitePulseAI Backend running",
+        "version": "2.3.0"
+    }
+
+# ============================================================
+# FASTAPI STARTUP / SHUTDOWN
+# ============================================================
 @app.on_event("startup")
 async def startup_event():
     print("🔥 SitePulseAI Backend startup complete.")
