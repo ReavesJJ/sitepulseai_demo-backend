@@ -108,186 +108,262 @@
 // ===========================================
 // SitePulseAI Frontend: Autonomous Add URL
 // ===========================================
+const API_BASE = "https://sitepulseai-demo-backend.onrender.com";
 
-const API_BASE = "https://sitepulseai-demo-backend.onrender.com"; // your Render backend URL
-const websiteInput = document.getElementById("website-url-input"); // input field
-const addButton = document.getElementById("add-url-button"); // Add URL button
-const dashboardContainer = document.getElementById("dashboard-container"); // where cards render
+const websiteInput = document.getElementById("website-url-input");
+const addButton = document.getElementById("add-url-button");
 
 // ---------------------------
-// Utility to normalize domain
+// STATE
+// ---------------------------
+let segments = {}; // { segment: [domains] }
+const REFRESH_INTERVAL = 60000; // 60s
+
+// ---------------------------
+// Normalize domain
 // ---------------------------
 function normalizeDomain(url) {
   try {
-    let u = new URL(url);
-    return u.hostname;
+    return new URL(url).hostname;
   } catch {
-    // fallback if user omits protocol
     return url.replace(/^(https?:\/\/)?(www\.)?/, "").split("/")[0];
   }
 }
 
 // ---------------------------
-// Fetch wrapper
+// Load segmented domains
 // ---------------------------
-async function fetchJSON(path) {
-  const res = await fetch(`${API_BASE}${path}`);
-  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-  return res.json();
+async function loadDomains() {
+  try {
+    const res = await fetch(`${API_BASE}/segments`);
+    const data = await res.json();
+
+    segments = data.segments || {};
+
+    console.log("Loaded segments:", segments);
+
+  } catch (err) {
+    console.error("Failed to load segments:", err);
+  }
 }
 
 // ---------------------------
-// Render card functions (replace with your existing render logic)
-// ---------------------------
-function renderUptime(data) { console.log("Uptime:", data); }
-function renderLatency(data) { console.log("Latency:", data); }
-function renderSSL(data) { console.log("SSL:", data); }
-function renderSEO(data) { console.log("SEO:", data); }
-function renderVulnerabilities(data) { console.log("Vulnerabilities:", data); }
-function renderTraffic(data) { console.log("Traffic:", data); }
-
-// ---------------------------
-// Fetch all metrics for a domain
+// Fetch ALL metrics per domain (REAL endpoints)
 // ---------------------------
 async function fetchAllMetrics(domain) {
   try {
     const [
-      uptimeData,
-      latencyData,
-      sslData,
-      seoData,
-      vulnData,
-      trafficData
+      uptime,
+      latency,
+      ssl,
+      seo,
+      vulnerabilities,
+      traffic
     ] = await Promise.all([
-      fetchJSON(`/uptime/${domain}`),
-      fetchJSON(`/latency/${domain}`),
-      fetchJSON(`/ssl/${domain}`),
-      fetchJSON(`/seo/${domain}`),
-      fetchJSON(`/vulnerabilities/${domain}`),
-      fetchJSON(`/traffic/${domain}`)
+      fetch(`${API_BASE}/uptime/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/latency/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/ssl/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/seo/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/vulnerabilities/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/traffic/${domain}`).then(r => r.json())
     ]);
 
-    // Render all cards
-    renderUptime(uptimeData);
-    renderLatency(latencyData);
-    renderSSL(sslData);
-    renderSEO(seoData);
-    renderVulnerabilities(vulnData);
-    renderTraffic(trafficData);
+    return {
+      domain,
+      uptime,
+      latency,
+      ssl,
+      seo,
+      vulnerabilities,
+      traffic
+    };
+
   } catch (err) {
-    console.error("Error fetching metrics for", domain, err);
-    alert(`Failed to fetch metrics for ${domain}: ${err.message}`);
+    console.error(`Telemetry failure for ${domain}:`, err);
+    return null;
   }
 }
 
 // ---------------------------
-// Add URL and trigger autonomous monitoring
+// ENTERPRISE GRID RENDER ENGINE
+// (NO UI STRUCTURE CHANGE)
+// ---------------------------
+function renderGrid(resultsList) {
+  if (!resultsList.length) return;
+
+  let uptimeHTML = "";
+  let latencyHTML = "";
+  let sslHTML = "";
+  let seoHTML = "";
+  let vulnHTML = "";
+  let trafficHTML = "";
+  let summaryHTML = "";
+  let recHTML = "";
+
+  resultsList.forEach(r => {
+    if (!r) return;
+
+    const label = `[${r.segment}] ${r.domain}`;
+
+    // UPTIME
+    uptimeHTML += `${label} → ${
+      r.uptime?.status === "up" ? "Online" : "Offline"
+    }<br>`;
+
+    // LATENCY
+    latencyHTML += `${label} → ${
+      r.latency?.load_time
+        ? Math.round(r.latency.load_time * 1000)
+        : "--"
+    } ms<br>`;
+
+    // SSL
+    sslHTML += `${label} → ${
+      r.ssl?.valid ? "Valid" : "Invalid"
+    }<br>`;
+
+    // SEO
+    seoHTML += `${label} → ${
+      r.seo?.score ?? "N/A"
+    }<br>`;
+
+    // VULNERABILITIES
+    const vulnCount = r.vulnerabilities?.count ?? 0;
+    vulnHTML += `${label} → ${vulnCount}<br>`;
+
+    // TRAFFIC
+    trafficHTML += `${label} → ${
+      r.traffic?.visits ?? "--"
+    }<br>`;
+
+    // AI SUMMARY
+    summaryHTML += `${label}: ${
+      r.uptime?.status === "up" ? "Operational" : "Down"
+    }, ${
+      r.latency?.load_time
+        ? Math.round(r.latency.load_time * 1000)
+        : "--"
+    } ms<br>`;
+
+    // AI RECOMMENDATIONS
+    if (vulnCount > 0) {
+      recHTML += `${label}: Patch ${vulnCount} vulnerabilities<br>`;
+    }
+
+    if (!r.ssl?.valid) {
+      recHTML += `${label}: SSL misconfiguration detected<br>`;
+    }
+
+    if (!r.seo?.score) {
+      recHTML += `${label}: SEO improvements recommended<br>`;
+    }
+  });
+
+  // Inject into EXISTING cards
+  document.getElementById("uptime").innerHTML = uptimeHTML;
+  document.getElementById("response-time").innerHTML = latencyHTML;
+  document.getElementById("ssl-status").innerHTML = sslHTML;
+  document.getElementById("seo-score").innerHTML = seoHTML;
+  document.getElementById("vulnerabilities").innerHTML = vulnHTML;
+  document.getElementById("traffic").innerHTML = trafficHTML;
+  document.getElementById("ai-summary").innerHTML = summaryHTML;
+  document.getElementById("ai-recommendations").innerHTML =
+    recHTML || "No critical issues detected.";
+}
+
+// ---------------------------
+// PARALLEL SEGMENT MONITORING ENGINE
+// ---------------------------
+async function monitoringLoop() {
+  if (!segments || Object.keys(segments).length === 0) return;
+
+  console.log("Running segmented monitoring cycle...");
+
+  const allResults = [];
+
+  for (const segment in segments) {
+    const domains = segments[segment];
+
+    const results = await Promise.all(
+      domains.map(domain => fetchAllMetrics(domain))
+    );
+
+    results.forEach(r => {
+      if (r) r.segment = segment;
+    });
+
+    allResults.push(...results);
+  }
+
+  renderGrid(allResults);
+}
+
+// ---------------------------
+// Add domain (segment-aware)
 // ---------------------------
 async function addUrl() {
   const domain = normalizeDomain(websiteInput.value);
 
-  const res = await fetch(`${API_BASE}/add_url`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ domain })
-  });
-
-  const data = await res.json();
-
-  if (!res.ok) {
-    alert(data.detail);
+  if (!domain) {
+    alert("Enter a valid domain");
     return;
   }
 
-  console.log("Monitoring Results:", data.results);
+  const payload = {
+    domain,
+    segment: "default" // 🔥 change per deployment if needed
+  };
 
-  // 🔥 Render everything from ONE response
-  renderUptime(data.results.uptime);
-  renderLatency(data.results.latency);
-  renderSSL(data.results.ssl);
-  renderSEO(data.results.seo);
-  renderVulnerabilities(data.results.vulnerabilities);
-  renderTraffic(data.results.traffic);
-}
+  try {
+    const res = await fetch(`${API_BASE}/add_url`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert(data.detail || "Failed to add domain");
+      return;
+    }
+
+    console.log("Domain added:", data);
+
+    websiteInput.value = "";
+
+    await loadDomains();
 
   } catch (err) {
     console.error("Add URL failed:", err);
-    alert(`Add URL failed: ${err.message}`);
   }
 }
 
 // ---------------------------
-// Attach click handler
+// EVENTS
 // ---------------------------
 addButton.addEventListener("click", addUrl);
 
-// Optional: allow Enter key to add URL
 websiteInput.addEventListener("keypress", (e) => {
   if (e.key === "Enter") addUrl();
 });
 
+// ---------------------------
+// INIT (BOOTSTRAP NODE)
+// ---------------------------
+async function init() {
+  await loadDomains();
 
+  // Immediate execution
+  monitoringLoop();
 
-async function addAdditionalURL() {
-  const input = document.getElementById("multi-url-input");
-  const raw = input.value.trim();
-
-  if (!raw) {
-    alert("Please enter at least one domain");
-    return;
-  }
-
-  // 🔹 Split by comma and clean
-  const domains = raw.split(",")
-    .map(d => d.trim())
-    .filter(d => d.length > 0);
-
-  const list = document.getElementById("multi-url-list");
-
-  for (const domain of domains) {
-    try {
-      const res = await fetch("/add-site", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ domain })
-      });
-
-      const data = await res.json();
-
-      const li = document.createElement("li");
-
-      if (data.status === "success") {
-        li.textContent = `✅ ${domain}`;
-        li.style.color = "#22c55e"; // green
-      } else {
-        li.textContent = `❌ ${domain} — ${data.message}`;
-        li.style.color = "#ef4444"; // red
-      }
-
-      list.appendChild(li);
-
-    } catch (err) {
-      const li = document.createElement("li");
-      li.textContent = `❌ ${domain} — request failed`;
-      li.style.color = "#ef4444";
-      list.appendChild(li);
-    }
-  }
-
-  // Clear input after processing
-  input.value = "";
+  // Continuous autonomous monitoring
+  setInterval(monitoringLoop, REFRESH_INTERVAL);
 }
 
-
-
-/* ---------------------------
-   EVENT WIRING
----------------------------- */
-startBtn.addEventListener("click", startMonitoring);
+init();
 </script>
 
 
