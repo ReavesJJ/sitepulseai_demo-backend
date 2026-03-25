@@ -228,17 +228,34 @@ except FileNotFoundError:
 class DomainRequest(BaseModel):
     domain: str
 
+
 # Add URL endpoint
 @app.post("/add_url")
 def add_url(request: DomainRequest):
     domain = request.domain.strip()
-    if domain in monitored_domains:
-        raise HTTPException(status_code=400, detail="Domain already monitored")
 
-    monitored_domains.append(domain)
-    with open(DOMAINS_FILE, "w") as f:
-        json.dump(monitored_domains, f, indent=2)
-    return {"status": "success", "domain": domain}
+    is_new = domain not in monitored_domains
+
+    # Add if new
+    if is_new:
+        monitored_domains.append(domain)
+        with open(DOMAINS_FILE, "w") as f:
+            json.dump(monitored_domains, f, indent=2)
+
+    # 🔥 ALWAYS run monitoring (new OR existing)
+    try:
+        results = run_full_check(domain)
+        print(f"[Monitoring Triggered] {domain}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Monitoring failed: {e}")
+
+    return {
+        "status": "added" if is_new else "already_exists",
+        "domain": domain,
+        "monitoring": "triggered",
+        "results": results
+    }
+
 
 # Internal monitoring trigger
 def run_monitor(domain):
@@ -248,6 +265,7 @@ def run_monitor(domain):
     except Exception as e:
         print(f"[Monitor Exception] {domain}: {e}")
 
+
 # Background autonomous monitoring loop
 def monitoring_loop():
     while True:
@@ -255,8 +273,10 @@ def monitoring_loop():
             run_monitor(domain)
         time.sleep(MONITOR_INTERVAL)
 
+
 # Start background loop in daemon thread
 threading.Thread(target=monitoring_loop, daemon=True).start()
+
 
 # ============================================================
 # ROOT / HEALTH ENDPOINTS
@@ -272,6 +292,7 @@ async def root():
         "message": "SitePulseAI Backend running",
         "version": "2.3.0"
     }
+
 
 # ============================================================
 # FASTAPI STARTUP / SHUTDOWN
