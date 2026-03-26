@@ -109,10 +109,14 @@
 // SitePulseAI Frontend: Autonomous Add URL
 // ===========================================
 
+console.log("JS LOADED");
+
+
 const API_BASE = "https://sitepulseai-demo-backend.onrender.com";
 
 const websiteInput = document.getElementById("website-url-input");
 const addButton = document.getElementById("add-url-button");
+
 
 // ---------------------------
 // STATE
@@ -120,16 +124,43 @@ const addButton = document.getElementById("add-url-button");
 let segments = {}; // { segment: [domains] }
 const REFRESH_INTERVAL = 60000; // 60s
 
+
 // ---------------------------
 // Normalize domain
 // ---------------------------
-function normalizeDomain(url) {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url.replace(/^(https?:\/\/)?(www\.)?/, "").split("/")[0];
-  }
+function normalizeResult(raw, domain, segment = "default") {
+  const website = raw.results?.website || {};
+
+  return {
+    domain,
+    segment,
+
+    uptime: {
+      status: website.status_code === 200 ? "up" : "down"
+    },
+
+    latency: {
+      load_time: website.load_time || null
+    },
+
+    ssl: {
+      valid: website.url?.startsWith("https") || false
+    },
+
+    seo: {
+      score: website.meta_description ? 100 : 50
+    },
+
+    vulnerabilities: {
+      count: 0 // placeholder until backend scan added
+    },
+
+    traffic: {
+      visits: "--" // placeholder
+    }
+  };
 }
+
 
 // ---------------------------
 // Load segmented domains
@@ -137,14 +168,27 @@ function normalizeDomain(url) {
 async function loadDomains() {
   try {
     const res = await fetch(`${API_BASE}/segments`);
+
+    if (!res.ok) throw new Error("Segments endpoint failed");
+
     const data = await res.json();
 
-    segments = data.segments || {};
+    // 🔥 VALIDATION
+    if (!data.segments || Object.keys(data.segments).length === 0) {
+      console.warn("No segments found — using fallback");
+      segments = { default: [] };
+      return;
+    }
 
-    console.log("Loaded segments:", segments);
+    segments = data.segments;
+
+    console.log("Segments loaded:", segments);
 
   } catch (err) {
-    console.error("Failed to load segments:", err);
+    console.error("Segments failed — fallback mode:", err);
+
+    // 🔥 FALLBACK MODE
+    segments = { default: [] };
   }
 }
 
@@ -185,10 +229,12 @@ async function fetchAllMetrics(domain) {
   }
 }
 
+
 // ---------------------------
 // ENTERPRISE GRID RENDER ENGINE
 // (NO UI STRUCTURE CHANGE)
 // ---------------------------
+
 function renderGrid(resultsList) {
   if (!resultsList.length) return;
 
@@ -211,6 +257,7 @@ function renderGrid(resultsList) {
       r.uptime?.status === "up" ? "Online" : "Offline"
     }<br>`;
 
+
     // LATENCY
     latencyHTML += `${label} → ${
       r.latency?.load_time
@@ -218,24 +265,29 @@ function renderGrid(resultsList) {
         : "--"
     } ms<br>`;
 
+
     // SSL
     sslHTML += `${label} → ${
       r.ssl?.valid ? "Valid" : "Invalid"
     }<br>`;
+
 
     // SEO
     seoHTML += `${label} → ${
       r.seo?.score ?? "N/A"
     }<br>`;
 
+
     // VULNERABILITIES
     const vulnCount = r.vulnerabilities?.count ?? 0;
     vulnHTML += `${label} → ${vulnCount}<br>`;
+
 
     // TRAFFIC
     trafficHTML += `${label} → ${
       r.traffic?.visits ?? "--"
     }<br>`;
+
 
     // AI SUMMARY
     summaryHTML += `${label}: ${
@@ -245,6 +297,7 @@ function renderGrid(resultsList) {
         ? Math.round(r.latency.load_time * 1000)
         : "--"
     } ms<br>`;
+
 
     // AI RECOMMENDATIONS
     if (vulnCount > 0) {
@@ -260,6 +313,7 @@ function renderGrid(resultsList) {
     }
   });
 
+
   // Inject into EXISTING cards
   document.getElementById("uptime").innerHTML = uptimeHTML;
   document.getElementById("response-time").innerHTML = latencyHTML;
@@ -271,6 +325,7 @@ function renderGrid(resultsList) {
   document.getElementById("ai-recommendations").innerHTML =
     recHTML || "No critical issues detected.";
 }
+
 
 // ---------------------------
 // PARALLEL SEGMENT MONITORING ENGINE
@@ -298,6 +353,7 @@ async function monitoringLoop() {
 
   renderGrid(allResults);
 }
+
 
 // ---------------------------
 // Add domain (segment-aware)
@@ -333,7 +389,16 @@ async function addUrl() {
 
     console.log("Domain added:", data);
 
+    
     websiteInput.value = "";
+
+    // 🔥 IMMEDIATE TELEMETRY (THIS FIXES "DEAD UI")
+    const immediate = await fetchAllMetrics(domain);
+
+    if (immediate) {
+      immediate.segment = "default";
+      renderGrid([immediate]);
+    }
 
     await loadDomains();
 
@@ -342,14 +407,17 @@ async function addUrl() {
   }
 }
 
+
 // ---------------------------
 // EVENTS
 // ---------------------------
-addButton.addEventListener("click", addUrl);
 
-websiteInput.addEventListener("keypress", (e) => {
-  if (e.key === "Enter") addUrl();
-});
+if (addButton) {
+  addButton.addEventListener("click", addUrl);
+} else {
+  console.error("Add button not found");
+}
+
 
 // ---------------------------
 // INIT (BOOTSTRAP NODE)
