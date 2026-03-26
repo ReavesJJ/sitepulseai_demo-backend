@@ -230,27 +230,40 @@ class DomainRequest(BaseModel):
 
 
 # Add URL endpoint
+
+from fastapi import FastAPI
+
+app = FastAPI()
+
+
+# 🔥 GLOBAL STATE (persists while server is alive)
+GLOBAL_SEGMENTS = {
+    "default": []
+}
+
 @app.post("/add_url")
-def add_url(request: DomainRequest):
-    
-    domain = request.domain.strip()
+def add_url(payload: dict):
+    domain = payload.get("domain")
+    segment = payload.get("segment", "default")
 
-    is_new = domain not in monitored_domains
+    if segment not in GLOBAL_SEGMENTS:
+        GLOBAL_SEGMENTS[segment] = []
 
-    if is_new:
-        monitored_domains.append(domain)
-        with open(DOMAINS_FILE, "w") as f:
-            json.dump(monitored_domains, f, indent=2)
-
-    # 🔥 Use monitoring engine
-    results = add_domain_to_monitoring(domain)
+    if domain not in GLOBAL_SEGMENTS[segment]:
+        GLOBAL_SEGMENTS[segment].append(domain)
 
     return {
-        "status": "added" if is_new else "already_exists",
-        "domain": domain,
-        "monitoring": "active",
-        "results": results
+        "status": "added",
+        "segments": GLOBAL_SEGMENTS
     }
+
+
+@app.get("/segments")
+def get_segments():
+    return {
+        "segments": GLOBAL_SEGMENTS
+    }
+
 
 
 # Internal monitoring trigger
