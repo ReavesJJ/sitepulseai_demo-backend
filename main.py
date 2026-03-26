@@ -230,40 +230,42 @@ class DomainRequest(BaseModel):
 
 
 # Add URL endpoint
-
-from fastapi import FastAPI
-
-app = FastAPI()
-
-
-# 🔥 GLOBAL STATE (persists while server is alive)
-GLOBAL_SEGMENTS = {
-    "default": []
-}
+import json
+import os
 
 @app.post("/add_url")
 def add_url(payload: dict):
     domain = payload.get("domain")
     segment = payload.get("segment", "default")
 
-    if segment not in GLOBAL_SEGMENTS:
-        GLOBAL_SEGMENTS[segment] = []
+    file_path = os.path.abspath("domains.json")
+    print("📁 Writing to:", file_path)
 
-    if domain not in GLOBAL_SEGMENTS[segment]:
-        GLOBAL_SEGMENTS[segment].append(domain)
+    try:
+        with open("domains.json", "r") as f:
+            data = json.load(f)
+    except Exception as e:
+        print("❌ READ ERROR:", e)
+        data = {"segments": {"default": []}}
+
+    if segment not in data["segments"]:
+        data["segments"][segment] = []
+
+    if domain not in data["segments"][segment]:
+        data["segments"][segment].append(domain)
+
+    try:
+        with open("domains.json", "w") as f:
+            json.dump(data, f, indent=2)
+        print("✅ WRITE SUCCESS:", data)
+    except Exception as e:
+        print("❌ WRITE ERROR:", e)
 
     return {
         "status": "added",
-        "segments": GLOBAL_SEGMENTS
+        "domain": domain,
+        "segments": data["segments"]  # 🔥 return live state
     }
-
-
-@app.get("/segments")
-def get_segments():
-    return {
-        "segments": GLOBAL_SEGMENTS
-    }
-
 
 
 # Internal monitoring trigger
