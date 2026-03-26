@@ -1,32 +1,90 @@
 // ---------------------------
 // SitePulseAI Frontend Logic (Modular JS)
 // ---------------------------
-
+// dashboard.js
 const API_BASE = "https://sitepulseai-demo-backend.onrender.com";
-const REFRESH_INTERVAL = 60000; // 60 seconds
+
+// ---------------------------
+// DOM ELEMENTS
+// ---------------------------
+const websiteInput = document.getElementById("website-url");
+const addInput = document.getElementById("multi-url-input");
+const addButton = document.getElementById("addButton");
+
+// CARD ELEMENTS
+const uptimeEl = document.getElementById("uptime");
+const responseEl = document.getElementById("response-time");
+const seoEl = document.getElementById("seo-score");
+const sslEl = document.getElementById("ssl-status");
+const trafficEl = document.getElementById("traffic");
+const vulnEl = document.getElementById("vulnerabilities");
+const summaryEl = document.getElementById("ai-summary");
+const recEl = document.getElementById("ai-recommendations");
 
 // ---------------------------
 // STATE
 // ---------------------------
-const state = {
-  segments: {},       // { segment: [domains] }
-  metrics: {}         // { domain: { uptime, latency, ssl, seo, vulnerabilities, traffic, segment } }
-};
+let segments = {};
+const REFRESH_INTERVAL = 60000; // 60s
 
 // ---------------------------
-// UTILITY: UPDATE CARD CONTENT
+// HELPERS
 // ---------------------------
-function updateCard(id, content) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.innerHTML = content || "—";
+function normalizeDomain(domain) {
+  if (!domain) return null;
+  return domain.replace(/^https?:\/\//, "").replace(/\/$/, "").trim();
 }
 
 // ---------------------------
-// RENDER DASHBOARD
+// LOAD SEGMENTS FROM BACKEND
 // ---------------------------
-function renderDashboard() {
-  const results = Object.values(state.metrics);
+async function loadDomains() {
+  try {
+    const res = await fetch(`${API_BASE}/segments`);
+    if (!res.ok) throw new Error("Segments endpoint failed");
+    const data = await res.json();
+    segments = data.segments || {};
+    if (!segments || Object.keys(segments).length === 0) segments = {};
+    console.log("Segments loaded:", segments);
+  } catch (err) {
+    console.error("Segments load failed:", err);
+    segments = {};
+  }
+}
+
+// ---------------------------
+// FETCH ALL METRICS FOR DOMAIN
+// ---------------------------
+async function fetchAllMetrics(domain) {
+  try {
+    const [
+      uptime,
+      latency,
+      ssl,
+      seo,
+      vulnerabilities,
+      traffic
+    ] = await Promise.all([
+      fetch(`${API_BASE}/uptime/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/latency/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/ssl/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/seo/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/vulnerabilities/${domain}`).then(r => r.json()),
+      fetch(`${API_BASE}/traffic/${domain}`).then(r => r.json())
+    ]);
+
+    return { domain, uptime, latency, ssl, seo, vulnerabilities, traffic };
+  } catch (err) {
+    console.error(`Metrics fetch failed for ${domain}:`, err);
+    return null;
+  }
+}
+
+// ---------------------------
+// RENDER CARDS
+// ---------------------------
+function renderGrid(resultsList) {
+  if (!resultsList || resultsList.length === 0) return;
 
   let uptimeHTML = "";
   let latencyHTML = "";
@@ -37,136 +95,94 @@ function renderDashboard() {
   let summaryHTML = "";
   let recHTML = "";
 
-  results.forEach(r => {
-    const label = `[${r.segment}] ${r.domain}`;
+  resultsList.forEach(r => {
+    if (!r) return;
+    const domain = r.domain;
 
-    uptimeHTML += `${label} → ${r.uptime?.status || "—"}<br>`;
-    latencyHTML += `${label} → ${r.latency?.load_time ? Math.round(r.latency.load_time * 1000) : "--"} ms<br>`;
-    sslHTML += `${label} → ${r.ssl?.valid ? "Valid" : "Invalid"}<br>`;
-    seoHTML += `${label} → ${r.seo?.score ?? "—"}<br>`;
-    vulnHTML += `${label} → ${r.vulnerabilities?.count ?? 0}<br>`;
-    trafficHTML += `${label} → ${r.traffic?.visits ?? "--"}<br>`;
-    summaryHTML += `${label} → ${r.uptime?.status === "up" ? "Operational" : "Down"}, ${r.latency?.load_time ? Math.round(r.latency.load_time * 1000) : "--"} ms<br>`;
+    uptimeHTML += `${domain} → ${r.uptime?.status === "up" ? "Online" : "Offline"}<br>`;
+    latencyHTML += `${domain} → ${r.latency?.load_time ? Math.round(r.latency.load_time * 1000) : "--"} ms<br>`;
+    sslHTML += `${domain} → ${r.ssl?.valid ? "Valid" : "Invalid"}<br>`;
+    seoHTML += `${domain} → ${r.seo?.score ?? "--"}<br>`;
+    vulnHTML += `${domain} → ${r.vulnerabilities?.count ?? 0}<br>`;
+    trafficHTML += `${domain} → ${r.traffic?.visits ?? "--"}<br>`;
+    summaryHTML += `${domain}: ${r.uptime?.status === "up" ? "Operational" : "Down"}, ${r.latency?.load_time ? Math.round(r.latency.load_time * 1000) : "--"} ms<br>`;
 
-    if (r.vulnerabilities?.count > 0) recHTML += `${label}: Patch ${r.vulnerabilities.count} vulnerabilities<br>`;
-    if (!r.ssl?.valid) recHTML += `${label}: SSL misconfiguration detected<br>`;
-    if (!r.seo?.score) recHTML += `${label}: SEO improvements recommended<br>`;
+    if ((r.vulnerabilities?.count ?? 0) > 0) recHTML += `${domain}: Patch ${r.vulnerabilities.count} vulnerabilities<br>`;
+    if (!r.ssl?.valid) recHTML += `${domain}: SSL misconfiguration detected<br>`;
+    if (!r.seo?.score) recHTML += `${domain}: SEO improvements recommended<br>`;
   });
 
-  // Inject into existing cards
-  updateCard("uptime", uptimeHTML);
-  updateCard("response-time", latencyHTML);
-  updateCard("ssl-status", sslHTML);
-  updateCard("seo-score", seoHTML);
-  updateCard("vulnerabilities", vulnHTML);
-  updateCard("traffic", trafficHTML);
-  updateCard("ai-summary", summaryHTML);
-  updateCard("ai-recommendations", recHTML || "No critical issues detected.");
-}
-
-// ---------------------------
-// FETCH METRICS FOR ONE DOMAIN
-// ---------------------------
-async function fetchMetrics(domain, segment = "default") {
-  try {
-    const [uptime, latency, ssl, seo, vulnerabilities, traffic] = await Promise.all([
-      fetch(`${API_BASE}/uptime/${domain}`).then(r => r.json()),
-      fetch(`${API_BASE}/latency/${domain}`).then(r => r.json()),
-      fetch(`${API_BASE}/ssl/${domain}`).then(r => r.json()),
-      fetch(`${API_BASE}/seo/${domain}`).then(r => r.json()),
-      fetch(`${API_BASE}/vulnerabilities/${domain}`).then(r => r.json()),
-      fetch(`${API_BASE}/traffic/${domain}`).then(r => r.json())
-    ]);
-
-    state.metrics[domain] = { domain, segment, uptime, latency, ssl, seo, vulnerabilities, traffic };
-  } catch (err) {
-    console.error(`Telemetry fetch failed for ${domain}:`, err);
-    state.metrics[domain] = { domain, segment, uptime: { status: "Error" } };
-  }
-}
-
-// ---------------------------
-// LOAD SEGMENTS
-// ---------------------------
-async function loadSegments() {
-  try {
-    const res = await fetch(`${API_BASE}/segments`);
-    const data = await res.json();
-    state.segments = data.segments ?? { default: [] };
-  } catch (err) {
-    console.error("Segments fetch failed:", err);
-    state.segments = { default: [] };
-  }
+  uptimeEl.innerHTML = uptimeHTML || "--";
+  responseEl.innerHTML = latencyHTML || "--";
+  sslEl.innerHTML = sslHTML || "--";
+  seoEl.innerHTML = seoHTML || "--";
+  vulnEl.innerHTML = vulnHTML || "--";
+  trafficEl.innerHTML = trafficHTML || "--";
+  summaryEl.innerHTML = summaryHTML || "--";
+  recEl.innerHTML = recHTML || "No critical issues detected.";
 }
 
 // ---------------------------
 // MONITORING LOOP
 // ---------------------------
 async function monitoringLoop() {
-  const promises = [];
+  if (!segments || Object.keys(segments).length === 0) return;
 
-  for (const segment in state.segments) {
-    const domains = state.segments[segment] ?? [];
-    domains.forEach(domain => promises.push(fetchMetrics(domain, segment)));
+  const allResults = [];
+
+  for (const segment in segments) {
+    const domains = segments[segment];
+    const results = await Promise.all(domains.map(fetchAllMetrics));
+    results.forEach(r => r && allResults.push(r));
   }
 
-  await Promise.all(promises);
-  renderDashboard();
+  renderGrid(allResults);
 }
 
 // ---------------------------
-// ADD DOMAIN FUNCTION
+// ADD DOMAIN
 // ---------------------------
-async function addDomain(domain) {
-  if (!domain) return;
+async function addAdditionalURL() {
+  const domain = normalizeDomain(addInput.value);
+  if (!domain) {
+    alert("Enter a valid domain");
+    return;
+  }
 
-  const payload = { domain, segment: "default" };
   try {
+    const payload = { domain, segment: "default" };
     const res = await fetch(`${API_BASE}/add_url`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Failed to add domain");
+    if (!res.ok) alert(data.detail || "Failed to add domain");
+    console.log("Domain added:", data);
 
-    console.log("Domain added:", domain);
+    addInput.value = "";
 
-    await loadSegments();
-    await fetchMetrics(domain, "default");
-    renderDashboard();
+    // Immediate fetch for newly added domain
+    const immediate = await fetchAllMetrics(domain);
+    if (immediate) renderGrid([immediate]);
 
+    // Reload all segments
+    await loadDomains();
   } catch (err) {
     console.error("Add domain failed:", err);
   }
 }
 
 // ---------------------------
-// INIT EVENTS
-// ---------------------------
-document.addEventListener("DOMContentLoaded", () => {
-  const addButton = document.getElementById("add-url-button");
-  const websiteInput = document.getElementById("website-url-input");
-
-  if (addButton && websiteInput) {
-    addButton.addEventListener("click", () => {
-      const domain = websiteInput.value.trim();
-      if (domain) addDomain(domain);
-      websiteInput.value = "";
-    });
-  } else {
-    console.warn("Add button or input not found");
-  }
-});
-
-// ---------------------------
-// INIT DASHBOARD
+// INIT
 // ---------------------------
 async function init() {
-  await loadSegments();
-  await monitoringLoop(); // immediate run
-  setInterval(monitoringLoop, REFRESH_INTERVAL); // continuous monitoring
+  await loadDomains();
+  monitoringLoop();
+  setInterval(monitoringLoop, REFRESH_INTERVAL);
+
+  // Attach button
+  if (addButton) addButton.addEventListener("click", addAdditionalURL);
 }
 
 init();
