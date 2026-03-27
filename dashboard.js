@@ -119,7 +119,7 @@ function renderGrid(resultsList) {
     if ((r.vulnerabilities?.count ?? 0) > 0) recHTML += `${domain}: Patch ${r.vulnerabilities.count} vulnerabilities<br>`;
 
     if (!r.ssl?.valid) recHTML += `${domain}: SSL misconfiguration detected<br>`;
-    
+
     if (!r.seo?.score) recHTML += `${domain}: SEO improvements recommended<br>`;
   });
 
@@ -134,7 +134,7 @@ function renderGrid(resultsList) {
 }
 
 // ---------------------------
-// MONITORING LOOP
+// MONITORING LOOP (FIXED)
 // ---------------------------
 async function monitoringLoop() {
   if (!segments || Object.keys(segments).length === 0) return;
@@ -143,10 +143,16 @@ async function monitoringLoop() {
 
   for (const segment in segments) {
     const domains = segments[segment];
-    const results = await Promise.all(domains.map(fetchAllMetrics));
-    results.forEach(r => r && allResults.push(r));
+
+    // 🔥 THIS IS THE FIX
+    const results = await Promise.all(domains.map(fetchRisk));
+
+    results.forEach(r => {
+      if (r) allResults.push(r);
+    });
   }
 
+  // ✅ This stays the same
   renderGrid(allResults);
 }
 
@@ -197,3 +203,40 @@ async function init() {
 }
 
 init();
+
+
+
+function renderDomainsTable(domainsData) {
+  const container = document.getElementById("domains-table");
+  if (!container) return;
+
+  let html = `
+    <table style="width:100%; color:white;">
+      <tr>
+        <th>Domain</th>
+        <th>Status</th>
+        <th>Response</th>
+        <th>SSL</th>
+        <th>Vulnerabilities</th>
+      </tr>
+  `;
+
+  domainsData.forEach(d => {
+    html += `
+      <tr>
+        <td>${d.domain}</td>
+        <td>${d.status}</td>
+        <td>${d.response_time_ms ?? "--"} ms</td>
+        <td>${d.ssl.days_remaining ?? "N/A"} days</td>
+        <td>${d.vulnerabilities.total}</td>
+      </tr>
+    `;
+  });
+
+  html += `</table>`;
+
+  container.innerHTML = html;
+}
+
+
+
