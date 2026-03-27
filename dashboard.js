@@ -95,20 +95,31 @@ function renderGrid(resultsList) {
   let summaryHTML = "";
   let recHTML = "";
 
+
   resultsList.forEach(r => {
     if (!r) return;
     const domain = r.domain;
 
-    uptimeHTML += `${domain} → ${r.uptime?.status === "up" ? "Online" : "Offline"}<br>`;
-    latencyHTML += `${domain} → ${r.latency?.load_time ? Math.round(r.latency.load_time * 1000) : "--"} ms<br>`;
+
+    uptimeHTML += `${domain} → ${r.uptime?.status || "Unknown"}<br>`;
+
+    latencyHTML += `${domain} → ${r.latency?.response_time_ms ?? "--"} ms<br>`;
+
     sslHTML += `${domain} → ${r.ssl?.valid ? "Valid" : "Invalid"}<br>`;
+
     seoHTML += `${domain} → ${r.seo?.score ?? "--"}<br>`;
+
     vulnHTML += `${domain} → ${r.vulnerabilities?.count ?? 0}<br>`;
+
     trafficHTML += `${domain} → ${r.traffic?.visits ?? "--"}<br>`;
+
     summaryHTML += `${domain}: ${r.uptime?.status === "up" ? "Operational" : "Down"}, ${r.latency?.load_time ? Math.round(r.latency.load_time * 1000) : "--"} ms<br>`;
 
+
     if ((r.vulnerabilities?.count ?? 0) > 0) recHTML += `${domain}: Patch ${r.vulnerabilities.count} vulnerabilities<br>`;
+
     if (!r.ssl?.valid) recHTML += `${domain}: SSL misconfiguration detected<br>`;
+    
     if (!r.seo?.score) recHTML += `${domain}: SEO improvements recommended<br>`;
   });
 
