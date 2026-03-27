@@ -136,23 +136,22 @@ function renderGrid(resultsList) {
 // ---------------------------
 // MONITORING LOOP (FIXED)
 // ---------------------------
+// ---------------------------
 async function monitoringLoop() {
-  if (!segments || Object.keys(segments).length === 0) return;
+  if (!segments || !Object.keys(segments).length) return;
 
-  const allResults = [];
+  // Gather promises for all segments
+  const allPromises = Object.values(segments).flatMap(domains =>
+    domains.map(fetchAllMetrics)
+  );
 
-  for (const segment in segments) {
-    const domains = segments[segment];
+  // Wait for all metrics to resolve
+  const results = await Promise.all(allPromises);
 
-    // 🔥 THIS IS THE FIX
-    const results = await Promise.all(domains.map(fetchRisk));
+  // Filter out null/undefined results
+  const allResults = results.filter(Boolean);
 
-    results.forEach(r => {
-      if (r) allResults.push(r);
-    });
-  }
-
-  // ✅ This stays the same
+  // Render the grid once
   renderGrid(allResults);
 }
 
@@ -205,7 +204,6 @@ async function init() {
 init();
 
 
-
 function renderDomainsTable(domainsData) {
   const container = document.getElementById("domains-table");
   if (!container) return;
@@ -237,6 +235,10 @@ function renderDomainsTable(domainsData) {
 
   container.innerHTML = html;
 }
+
+
+
+
 
 
 
