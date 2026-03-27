@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+
 # -----------------------
 # Existing monitoring engine
 # -----------------------
@@ -27,6 +28,7 @@ from seo_checker import router as seo_router
 from traffic_checker import router as traffic_router
 from latency_checker import router as latency_router
 from autofix_route import router as autofix_router  # Auto-fix routes
+from risk_router import router as risk_router
 
 # -----------------------
 # Engines / persistence
@@ -82,6 +84,7 @@ app.include_router(seo_router)
 app.include_router(traffic_router)
 app.include_router(latency_router)
 app.include_router(autofix_router)
+app.include_router(risk_router)
 
 # -----------------------
 # Telemetry Event storage path
@@ -304,6 +307,46 @@ def get_segments():
             return data
     except:
         return {"segments": {"default": []}}
+
+
+
+import requests
+
+@app.get("/vulnerabilities/{domain}")
+def check_vulnerabilities(domain: str):
+    issues = []
+
+    try:
+        url = f"https://{domain}"
+        response = requests.get(url, timeout=5)
+
+        headers = response.headers
+
+        # Security headers check
+        if "X-Frame-Options" not in headers:
+            issues.append("missing_x_frame_options")
+
+        if "Content-Security-Policy" not in headers:
+            issues.append("missing_csp")
+
+        if "Strict-Transport-Security" not in headers:
+            issues.append("missing_hsts")
+
+        if "X-Content-Type-Options" not in headers:
+            issues.append("missing_x_content_type")
+
+        return {
+            "count": len(issues),
+            "issues": issues
+        }
+
+    except:
+        return {
+            "count": 0,
+            "issues": []
+        }
+
+
 
 
 # ============================================================
