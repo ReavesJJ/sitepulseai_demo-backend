@@ -1,6 +1,4 @@
 # sitepulseai_demo-backend/vulnerabilities.py
-# sitepulseai_demo-backend/vulnerabilities.py
-# sitepulseai_demo-backend/vulnerabilities.py
 
 import requests
 import ssl
@@ -8,6 +6,7 @@ import socket
 from datetime import datetime
 import json
 from pathlib import Path
+import asyncio
 
 CACHE_FILE = Path("vuln_cache.json")
 
@@ -89,32 +88,59 @@ def scan_headers(domain: str):
     return findings
 
 # -----------------------------
-# Unified Scan + Cache
+# Unified Scan + Cache (Async-Friendly)
 # -----------------------------
-def scan_domain(domain: str, license_level: str = "free"):
+async def scan_domain(domain: str, license_level: str = "free"):
     domain = domain.lower().strip()
     cache = load_cache()
 
     # Return cached if available
     if domain in cache:
-        return cache[domain]
+        cached = cache[domain]
+        # Add risk_score if missing
+        if "risk_score" not in cached:
+            counts = cached.get("counts", {})
+            cached["risk_score"] = (
+                counts.get("critical", 0) * 5 +
+                counts.get("high", 0) * 3 +
+                counts.get("medium", 0) * 2 +
+                counts.get("low", 0) * 1
+            )
+        return cached
 
     findings = []
 
-    # Always scan SSL
-    findings += scan_ssl(domain)
-
-    # Header scan (free tier)
-    findings += scan_headers(domain)
+    # Run blocking scans in a separate thread for async safety
+    findings_ssl, findings_headers = await asyncio.gather(
+        asyncio.to_thread(scan_ssl, domain),
+        asyncio.to_thread(scan_headers, domain)
+    )
+    findings += findings_ssl
+    findings += findings_headers
 
     # Optionally: license-gated deep scans could go here
 
     counts = summarize_findings(findings)
+    risk_score = (
+        counts.get("critical", 0) * 5 +
+        counts.get("high", 0) * 3 +
+        counts.get("medium", 0) * 2 +
+        counts.get("low", 0) * 1
+    )
 
-    result = {"domain": domain, "findings": findings, "counts": counts}
+    result = {
+        "domain": domain,
+        "findings": findings,
+        "counts": counts,
+        "risk_score": risk_score
+    }
 
     # Cache for offline / fast reload
     cache[domain] = result
     save_cache(cache)
 
     return result
+
+
+
+
