@@ -1,5 +1,4 @@
 # sitepulseai_demo-backend/vulnerabilities_checkers.py
-
 from fastapi import APIRouter
 from vulnerabilities import scan_domain
 import asyncio
