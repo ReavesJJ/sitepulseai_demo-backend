@@ -10,6 +10,8 @@ import asyncio
 # vulnerabilities.py
 from fastapi.responses import JSONResponse
 
+
+
 def get_vulnerabilities_data(domain: str):
     # Your logic to fetch vulnerability info
     return {"domain": domain, "vulnerabilities": []}
@@ -147,6 +149,36 @@ async def scan_domain(domain: str, license_level: str = "free"):
     save_cache(cache)
 
     return result
+
+
+
+
+import random
+
+def check_uptime(domain):
+    # Replace with real uptime monitoring
+    return "Online" if random.random() > 0.05 else "Offline"
+
+def check_response_time(domain):
+    # Replace with real HTTP ping logic
+    return round(random.uniform(100, 500), 2)  # ms
+
+def check_seo(domain):
+    return random.randint(40, 90)
+
+def check_ssl(domain):
+    return {
+        "status": "Valid",
+        "managed": True,
+        "expires_in_days": 66
+    }
+
+def check_traffic(domain):
+    return random.randint(500, 5000)  # example visits
+
+def check_vulnerabilities(domain):
+    # Replace with real scan
+    return ["XSS", "SQLi"] if random.random() > 0.5 else []
 
 
 
