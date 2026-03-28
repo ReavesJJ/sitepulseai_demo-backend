@@ -38,6 +38,7 @@ async def async_scan_domain(domain: str) -> dict:
     result["risk_score"] = risk_score
     result["domain"] = domain
     return result
+    
 
 @router.get("/{domain}")
 async def vuln_card(domain: str):
@@ -46,3 +47,5 @@ async def vuln_card(domain: str):
     Returns SSL/TLS + header findings + real-time risk score
     """
     return await async_scan_domain(domain)
+
+
