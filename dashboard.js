@@ -66,10 +66,15 @@ async function fetchAllMetrics(domain) {
       traffic
     ] = await Promise.all([
       fetch(`${API_BASE}/uptime/${domain}`).then(r => r.json()),
+
       fetch(`${API_BASE}/latency/${domain}`).then(r => r.json()),
+
       fetch(`${API_BASE}/ssl/${domain}`).then(r => r.json()),
+
       fetch(`${API_BASE}/seo/${domain}`).then(r => r.json()),
-      fetch(`${API_BASE}/vulnerabilities/${domain}`).then(r => r.json()),
+
+      
+
       fetch(`${API_BASE}/traffic/${domain}`).then(r => r.json())
     ]);
 
@@ -234,6 +239,42 @@ function renderDomainsTable(domainsData) {
   html += `</table>`;
 
   container.innerHTML = html;
+}
+
+
+
+async function fetchAllMetrics(domain) {
+  try {
+    const response = await fetch(`${API_BASE}/vulnerabilities/${domain}`);
+    if (!response.ok) {
+      console.error("Server returned:", response.status);
+      return null;
+    }
+    return await response.json();
+  } catch (err) {
+    console.error("Fetch failed for", domain, err);
+    return null;
+  }
+}
+
+async function monitoringLoop(domains) {
+  const allResults = await Promise.all(domains.map(fetchAllMetrics));
+  renderGrid(allResults.filter(r => r)); // only successful
+}
+
+function renderGrid(metricsArray) {
+  metricsArray.forEach(metrics => {
+    document.getElementById("uptime").innerText = metrics.uptime;
+    document.getElementById("response_time").innerText = metrics.response_time + " ms";
+    document.getElementById("seo_status").innerText = metrics.seo_score;
+    
+    const ssl = metrics.ssl;
+    document.getElementById("ssl_status").innerText = `Status: ${ssl.status}`;
+    document.getElementById("ssl_expires").innerText = `Expires in: ${ssl.expires_in_days} days`;
+    
+    document.getElementById("site_traffic").innerText = metrics.site_traffic || "--";
+    document.getElementById("vulnerabilities_detected").innerText = metrics.vulnerabilities.length;
+  });
 }
 
 
