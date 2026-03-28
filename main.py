@@ -11,6 +11,7 @@ import time
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import requests
 
 
 # -----------------------
@@ -70,6 +71,8 @@ app = FastAPI(
 # -----------------------
 # Middleware
 # -----------------------
+from fastapi.middleware.cors import CORSMiddleware
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # 🔥 allow all for now
@@ -313,8 +316,6 @@ def get_segments():
         return {"segments": {"default": []}}
 
 
-
-import requests
 
 @app.get("/vulnerabilities/{domain}")
 def check_vulnerabilities(domain: str):
