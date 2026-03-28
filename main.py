@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
-from vulnerabilities import get_vulnerabilities_data
+
 
 # -----------------------
 # Existing monitoring engine
@@ -64,16 +64,19 @@ app = FastAPI(
     version="2.3.0"
 )
 
-
+app = FastAPI()
 
 
 
 # -----------------------
 # Middleware
 # -----------------------
+
+# --- CORS ---
+origins = ["http://127.0.0.1:5500", "http://localhost:5500"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -113,6 +116,9 @@ def monitor(client_id: str = Query(...), domain: str = Query(...)):
     # 3️⃣ Prepare results dict
     results = {"domain": domain, "timestamp": datetime.utcnow().isoformat()}
     features = license_data["features"]
+
+
+
 
     # -----------------------
     # Tier / feature enforcement
@@ -350,13 +356,6 @@ def check_vulnerabilities(domain: str):
         }
 
 
-@app.get("/vulnerabilities/{domain}")
-async def get_vulnerabilities(domain: str):
-    try:
-        data = get_vulnerabilities_data(domain)
-        return JSONResponse(content=data)
-    except Exception as e:
-        return JSONResponse(content={"error": str(e), "domain": domain}, status_code=500)
 
 
 
