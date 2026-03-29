@@ -7,8 +7,6 @@ from datetime import datetime
 import json
 from pathlib import Path
 import asyncio
-# vulnerabilities.py
-from fastapi.responses import JSONResponse
 
 
 
