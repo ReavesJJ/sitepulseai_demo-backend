@@ -1,50 +1,98 @@
 # sitepulseai_demo-backend/vulnerabilities_checkers.py
-from fastapi import APIRouter
-from vulnerabilities import scan_domain
-import asyncio
 
-router = APIRouter(
-    prefix="/vulnerabilities",
-    tags=["Vulnerabilities"]
-)
 
-async def async_scan_domain(domain: str) -> dict:
-    """
-    Async wrapper for scan_domain to return safe fallback on failure.
-    """
+
+
+import socket
+import ssl
+from datetime import datetime
+
+
+def get_ssl_expiry(domain: str):
     try:
-        result = await asyncio.to_thread(scan_domain, domain)
-    except Exception:
-        result = None
+        context = ssl.create_default_context()
 
-    # Fallback to prevent frontend errors
-    if not result or "findings" not in result or "counts" not in result:
+        with socket.create_connection((domain, 443), timeout=5) as sock:
+            with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                cert = ssock.getpeercert()
+
+        expiry_str = cert.get('notAfter')
+        expiry_date = datetime.strptime(expiry_str, "%b %d %H:%M:%S %Y %Z")
+
+        days_remaining = (expiry_date - datetime.utcnow()).days
+
+        if days_remaining < 7:
+            risk = "Critical"
+        elif days_remaining < 30:
+            risk = "Warning"
+        else:
+            risk = "Healthy"
+
         return {
-            "domain": domain,
-            "findings": [],
-            "counts": {"critical": 0, "high": 0, "medium": 0, "low": 0},
-            "risk_score": 0
+            "ssl_expiry": expiry_date.strftime("%Y-%m-%d"),
+            "days_remaining": days_remaining,
+            "ssl_status": risk
         }
 
-    # Calculate a simple real-time risk score based on severity counts
-    counts = result.get("counts", {})
+    except Exception as e:
+        return {
+            "ssl_expiry": None,
+            "days_remaining": None,
+            "ssl_status": "Unknown",
+            "ssl_error": str(e)
+        }
+
+
+async def scan_domain(domain: str):
+    findings = []
+
+    # 🔐 SSL CHECK
+    ssl_info = get_ssl_expiry(domain)
+
+    # 🔥 Generate vulnerability findings from SSL state
+    if ssl_info["ssl_status"] == "Critical":
+        findings.append({
+            "type": "SSL certificate expiring soon",
+            "severity": "Critical"
+        })
+    elif ssl_info["ssl_status"] == "Warning":
+        findings.append({
+            "type": "SSL certificate nearing expiration",
+            "severity": "Medium"
+        })
+
+    # 🔢 Count severities
+    counts = {
+        "critical": sum(1 for f in findings if f["severity"] == "Critical"),
+        "high": sum(1 for f in findings if f["severity"] == "High"),
+        "medium": sum(1 for f in findings if f["severity"] == "Medium"),
+        "low": sum(1 for f in findings if f["severity"] == "Low"),
+    }
+
+    # 🔥 Risk scoring (tuned for visibility)
     risk_score = (
-        counts.get("critical", 0) * 5 +
-        counts.get("high", 0) * 3 +
-        counts.get("medium", 0) * 2 +
-        counts.get("low", 0) * 1
+        counts["critical"] * 10 +
+        counts["high"] * 7 +
+        counts["medium"] * 4 +
+        counts["low"] * 1
     )
-    result["risk_score"] = risk_score
-    result["domain"] = domain
-    return result
-    
 
-@router.get("/{domain}")
-async def vuln_card(domain: str):
-    """
-    Unified vulnerability endpoint for the dashboard.
-    Returns SSL/TLS + header findings + real-time risk score
-    """
-    return await async_scan_domain(domain)
+    total_vulns = len(findings)
 
+    # 🚨 THIS IS THE KEY FIX → match frontend structure
+    return {
+        "domain": domain,
 
+        # ✅ what your dashboard likely expects
+        "vulnerabilities": {
+            "findings": findings,
+            "counts": counts,
+            "risk_score": risk_score,
+            "total": total_vulns
+        },
+
+        # ✅ keep SSL at top level for SSL card
+        "ssl_expiry": ssl_info["ssl_expiry"],
+        "days_remaining": ssl_info["days_remaining"],
+        "ssl_status": ssl_info["ssl_status"]
+    }
