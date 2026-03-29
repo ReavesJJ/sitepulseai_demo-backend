@@ -19,6 +19,7 @@ import requests
 # -----------------------
 from monitoring_engine import add_domain_to_monitoring
 
+
 # -----------------------
 # Routers for each card
 # -----------------------
@@ -30,6 +31,7 @@ from traffic_checker import router as traffic_router
 from latency_checker import router as latency_router
 from autofix_route import router as autofix_router  # Auto-fix routes
 from risk_router import router as risk_router
+
 
 # -----------------------
 # Engines / persistence
@@ -44,6 +46,8 @@ import persistence
 # -----------------------
 from immutable_audit_log import write_audit_log
 from telemetry_attestation import generate_telemetry_attestation
+
+
 
 # -----------------------
 # License enforcement
@@ -82,6 +86,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+
 # -----------------------
 # Include routers
 # -----------------------
@@ -94,12 +100,14 @@ app.include_router(latency_router)
 app.include_router(autofix_router)
 app.include_router(risk_router)
 
+
 # -----------------------
 # Telemetry Event storage path
 # -----------------------
 TELEMETRY_DIR = "telemetry_events"
 TELEMETRY_FILE = os.path.join(TELEMETRY_DIR, "telemetry_event_log.json")
 os.makedirs(TELEMETRY_DIR, exist_ok=True)
+
 
 # ============================================================
 # Existing /monitor endpoint
@@ -116,7 +124,6 @@ def monitor(client_id: str = Query(...), domain: str = Query(...)):
     # 3️⃣ Prepare results dict
     results = {"domain": domain, "timestamp": datetime.utcnow().isoformat()}
     features = license_data["features"]
-
 
 
 
@@ -147,6 +154,7 @@ def monitor(client_id: str = Query(...), domain: str = Query(...)):
         check_feature_access(client_id, "vulnerabilities")
         results["vulnerabilities"] = vulnerabilities_router.check_vulnerabilities(domain)
 
+
     # -----------------------
     # Immutable audit log
     # -----------------------
@@ -156,6 +164,8 @@ def monitor(client_id: str = Query(...), domain: str = Query(...)):
         "domain": domain,
         "tier": license_data["tier"]
     })
+
+
 
     # -----------------------
     # Telemetry Event Record
@@ -194,6 +204,8 @@ def monitor(client_id: str = Query(...), domain: str = Query(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Telemetry Event failed: {e}")
 
+
+
     # -----------------------
     # Telemetry attestation certificate
     # -----------------------
@@ -201,6 +213,8 @@ def monitor(client_id: str = Query(...), domain: str = Query(...)):
     results["telemetry_certificate"] = certificate
 
     return results
+
+
 
 # -----------------------
 # Endpoint to get latest telemetry event
@@ -216,6 +230,8 @@ def latest_telemetry():
         "latest_telemetry_event": telemetry_events[-1]
     }
 
+
+
 # -----------------------
 # License generation endpoint
 # -----------------------
@@ -224,6 +240,8 @@ def generate_license(tier: str = Query(...), domains: str = Query(...), expirati
     domains_list = [d.strip() for d in domains.split(",")]
     client_id = create_license(tier, domains_list, expiration_date)
     return {"client_id": client_id, "tier": tier, "domains": domains_list, "expiration_date": expiration_date}
+
+
 
 # ============================================================
 # AUTONOMOUS MONITORING INTEGRATION
@@ -241,6 +259,7 @@ except FileNotFoundError:
 # Domain model for /add_url
 class DomainRequest(BaseModel):
     domain: str
+
 
 
 # Add URL endpoint
@@ -281,6 +300,8 @@ def run_monitor(domain):
     except Exception as e:
         print(f"[Monitor Exception] {domain}: {e}")
         return None
+
+
 
 # Background autonomous monitoring loop
 def monitoring_loop():
