@@ -1,6 +1,9 @@
 // ---------------------------
 // SitePulseAI Frontend Logic (Modular JS)
 // ---------------------------
+
+
+
 // dashboard.js
 const API_BASE = "https://sitepulseai-demo-backend.onrender.com";
 
@@ -65,15 +68,18 @@ async function fetchAllMetrics(domain) {
       vulnerabilities,
       traffic
     ] = await Promise.all([
+
       fetch(`${API_BASE}/uptime/${domain}`).then(r => r.json()),
+
 
       fetch(`${API_BASE}/latency/${domain}`).then(r => r.json()),
 
+
       fetch(`${API_BASE}/ssl/${domain}`).then(r => r.json()),
+
 
       fetch(`${API_BASE}/seo/${domain}`).then(r => r.json()),
 
-      
 
       fetch(`${API_BASE}/traffic/${domain}`).then(r => r.json())
     ]);
@@ -84,6 +90,7 @@ async function fetchAllMetrics(domain) {
     return null;
   }
 }
+
 
 // ---------------------------
 // RENDER CARDS
@@ -108,13 +115,14 @@ function renderGrid(resultsList) {
 
     uptimeHTML += `${domain} → ${r.uptime?.status || "Unknown"}<br>`;
 
-    latencyHTML += `${domain} → ${r.latency?.response_time_ms ?? "--"} ms<br>`;
+    latencyHTML += `${domain} → ${r.latency?.
+        response_time_ms ?? "--"} ms<br>`;
 
     sslHTML += `${domain} → ${r.ssl?.valid ? "Valid" : "Invalid"}<br>`;
 
     seoHTML += `${domain} → ${r.seo?.score ?? "--"}<br>`;
 
-    vulnHTML += `${domain} → ${r.vulnerabilities?.count ?? 0}<br>`;
+    vulnHTML += `${domain} → ${r.vulnerabilities?.count ?? ""}<br>`;
 
     trafficHTML += `${domain} → ${r.traffic?.visits ?? "--"}<br>`;
 
@@ -141,22 +149,17 @@ function renderGrid(resultsList) {
 // ---------------------------
 // MONITORING LOOP (FIXED)
 // ---------------------------
-// ---------------------------
 async function monitoringLoop() {
-  if (!segments || !Object.keys(segments).length) return;
+  if (!segments || Object.keys(segments).length === 0) return;
 
-  // Gather promises for all segments
-  const allPromises = Object.values(segments).flatMap(domains =>
-    domains.map(fetchAllMetrics)
-  );
+  const allResults = [];
 
-  // Wait for all metrics to resolve
-  const results = await Promise.all(allPromises);
+  for (const segment in segments) {
+    const domains = segments[segment];
+    const results = await Promise.all(domains.map(fetchAllMetrics));
+    results.forEach(r => r && allResults.push(r));
+  }
 
-  // Filter out null/undefined results
-  const allResults = results.filter(Boolean);
-
-  // Render the grid once
   renderGrid(allResults);
 }
 
@@ -240,44 +243,6 @@ function renderDomainsTable(domainsData) {
 
   container.innerHTML = html;
 }
-
-
-
-async function fetchAllMetrics(domain) {
-  try {
-    const response = await fetch(`${API_BASE}/vulnerabilities/${domain}`);
-    if (!response.ok) {
-      console.error("Server returned:", response.status);
-      return null;
-    }
-    return await response.json();
-  } catch (err) {
-    console.error("Fetch failed for", domain, err);
-    return null;
-  }
-}
-
-async function monitoringLoop(domains) {
-  const allResults = await Promise.all(domains.map(fetchAllMetrics));
-  renderGrid(allResults.filter(r => r)); // only successful
-}
-
-function renderGrid(metricsArray) {
-  metricsArray.forEach(metrics => {
-    document.getElementById("uptime").innerText = metrics.uptime;
-    document.getElementById("response_time").innerText = metrics.response_time + " ms";
-    document.getElementById("seo_status").innerText = metrics.seo_score;
-    
-    const ssl = metrics.ssl;
-    document.getElementById("ssl_status").innerText = `Status: ${ssl.status}`;
-    document.getElementById("ssl_expires").innerText = `Expires in: ${ssl.expires_in_days} days`;
-    
-    document.getElementById("site_traffic").innerText = metrics.site_traffic || "--";
-    document.getElementById("vulnerabilities_detected").innerText = metrics.vulnerabilities.length;
-  });
-}
-
-
 
 
 
