@@ -109,6 +109,7 @@ TELEMETRY_FILE = os.path.join(TELEMETRY_DIR, "telemetry_event_log.json")
 os.makedirs(TELEMETRY_DIR, exist_ok=True)
 
 
+
 # ============================================================
 # Existing /monitor endpoint
 # ============================================================
@@ -341,6 +342,87 @@ def get_segments():
         return {"segments": {"default": []}}
 
 
+import requests
+import socket
+import ssl
+from datetime import datetime
+
+
+def get_ssl_expiry(domain: str):
+    try:
+        context = ssl.create_default_context()
+
+        with socket.create_connection((domain, 443), timeout=5) as sock:
+            with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                cert = ssock.getpeercert()
+
+        expiry_str = cert.get('notAfter')
+        expiry_date = datetime.strptime(expiry_str, "%b %d %H:%M:%S %Y %Z")
+
+        days_remaining = (expiry_date - datetime.utcnow()).days
+
+        if days_remaining < 7:
+            status = "Critical"
+        elif days_remaining < 30:
+            status = "Warning"
+        else:
+            status = "Healthy"
+
+        return {
+            "ssl_expiry": expiry_date.strftime("%Y-%m-%d"),
+            "days_remaining": days_remaining,
+            "ssl_status": status
+        }
+
+    except Exception:
+        return {
+            "ssl_expiry": None,
+            "days_remaining": None,
+            "ssl_status": "Unknown"
+        }
+    
+    
+
+
+import requests
+import socket
+import ssl
+from datetime import datetime
+
+
+def get_ssl_expiry(domain: str):
+    try:
+        context = ssl.create_default_context()
+
+        with socket.create_connection((domain, 443), timeout=5) as sock:
+            with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                cert = ssock.getpeercert()
+
+        expiry_str = cert.get('notAfter')
+        expiry_date = datetime.strptime(expiry_str, "%b %d %H:%M:%S %Y %Z")
+
+        days_remaining = (expiry_date - datetime.utcnow()).days
+
+        if days_remaining < 7:
+            status = "Critical"
+        elif days_remaining < 30:
+            status = "Warning"
+        else:
+            status = "Healthy"
+
+        return {
+            "ssl_expiry": expiry_date.strftime("%Y-%m-%d"),
+            "days_remaining": days_remaining,
+            "ssl_status": status
+        }
+
+    except Exception:
+        return {
+            "ssl_expiry": None,
+            "days_remaining": None,
+            "ssl_status": "Unknown"
+        }
+
 
 @app.get("/vulnerabilities/{domain}")
 def check_vulnerabilities(domain: str):
@@ -348,35 +430,67 @@ def check_vulnerabilities(domain: str):
 
     try:
         url = f"https://{domain}"
-        response = requests.get(url, timeout=5)
+
+        response = requests.get(
+            url,
+            timeout=5,
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
 
         headers = response.headers
 
-        # Security headers check
+        # 🔐 Security header checks
         if "X-Frame-Options" not in headers:
-            issues.append("missing_x_frame_options")
+            issues.append({"type": "missing_x_frame_options", "severity": "Medium"})
 
         if "Content-Security-Policy" not in headers:
-            issues.append("missing_csp")
+            issues.append({"type": "missing_csp", "severity": "High"})
 
         if "Strict-Transport-Security" not in headers:
-            issues.append("missing_hsts")
+            issues.append({"type": "missing_hsts", "severity": "High"})
 
         if "X-Content-Type-Options" not in headers:
-            issues.append("missing_x_content_type")
+            issues.append({"type": "missing_x_content_type", "severity": "Low"})
 
-        return {
-            "count": len(issues),
-            "issues": issues
-        }
+    except Exception:
+        # fail gracefully
+        issues = []
 
-    except:
-        return {
-            "count": 0,
-            "issues": []
-        }
+    # 🔢 Count severities
+    counts = {
+        "critical": sum(1 for i in issues if i["severity"] == "Critical"),
+        "high": sum(1 for i in issues if i["severity"] == "High"),
+        "medium": sum(1 for i in issues if i["severity"] == "Medium"),
+        "low": sum(1 for i in issues if i["severity"] == "Low"),
+    }
 
+    # 🔥 Risk score calculation
+    risk_score = (
+        counts["critical"] * 10 +
+        counts["high"] * 7 +
+        counts["medium"] * 4 +
+        counts["low"] * 1
+    )
 
+    # 🔐 SSL DATA (restored)
+    ssl_info = get_ssl_expiry(domain)
+
+    # ✅ FINAL RESPONSE (matches frontend expectations)
+    return {
+        "domain": domain,
+
+        "vulnerabilities": {
+            "total": len(issues),
+            "risk_score": risk_score,
+            "issues": issues,
+            "counts": counts
+        },
+
+        # 🔥 THIS FIXES YOUR SSL CARD
+        "ssl_expiry": ssl_info["ssl_expiry"],
+        "days_remaining": ssl_info["days_remaining"],
+        "ssl_status": ssl_info["ssl_status"]
+    }
 
 
 
