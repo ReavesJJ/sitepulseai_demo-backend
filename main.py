@@ -342,12 +342,6 @@ def get_segments():
         return {"segments": {"default": []}}
 
 
-import requests
-import socket
-import ssl
-from datetime import datetime
-
-
 def get_ssl_expiry(domain: str):
     try:
         context = ssl.create_default_context()
@@ -380,8 +374,7 @@ def get_ssl_expiry(domain: str):
             "days_remaining": None,
             "ssl_status": "Unknown"
         }
-    
-    
+
 
 
 import requests
@@ -491,7 +484,6 @@ def check_vulnerabilities(domain: str):
         "days_remaining": ssl_info["days_remaining"],
         "ssl_status": ssl_info["ssl_status"]
     }
-
 
 
 # ============================================================
