@@ -124,9 +124,9 @@ function renderGrid(resultsList) {
 
     vulnHTML += `${domain} → ${r.vulnerabilities?.count ?? ""}<br>`;
 
-    trafficHTML += `${domain} → ${r.traffic?.visits ?? "--"}<br>`;
+    trafficHTML += `${domain} → ${r.traffic?.visits ?? ""}<br>`;
 
-    summaryHTML += `${domain}: ${r.uptime?.status === "up" ? "Operational" : "Down"}, ${r.latency?.load_time ? Math.round(r.latency.load_time * 1000) : "--"} ms<br>`;
+    summaryHTML += `${domain}: ${r.uptime?.status === "up" ? "Operational" : ""}, ${r.latency?.load_time ? Math.round(r.latency.load_time * 1000) : "--"} ms<br>`;
 
 
     if ((r.vulnerabilities?.count ?? 0) > 0) recHTML += `${domain}: Patch ${r.vulnerabilities.count} vulnerabilities<br>`;
@@ -143,7 +143,7 @@ function renderGrid(resultsList) {
   vulnEl.innerHTML = vulnHTML || "--";
   trafficEl.innerHTML = trafficHTML || "--";
   summaryEl.innerHTML = summaryHTML || "--";
-  recEl.innerHTML = recHTML || "No critical issues detected.";
+  recEl.innerHTML = recHTML || "";
 }
 
 // ---------------------------
