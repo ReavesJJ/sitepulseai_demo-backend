@@ -71,25 +71,57 @@ async function fetchAllMetrics(domain) {
 
       fetch(`${API_BASE}/uptime/${domain}`).then(r => r.json()),
 
-
       fetch(`${API_BASE}/latency/${domain}`).then(r => r.json()),
-
 
       fetch(`${API_BASE}/ssl/${domain}`).then(r => r.json()),
 
-
       fetch(`${API_BASE}/seo/${domain}`).then(r => r.json()),
 
+      // 🔥 SAFE VERSION
+      (async () => {
+        try {
+          const res = await fetch(`${API_BASE}/vulnerabilities/${domain}`);
+          if (!res.ok) return null;
+          return await res.json();
+        } catch {
+          return null;
+        }
+      })(),
 
       fetch(`${API_BASE}/traffic/${domain}`).then(r => r.json())
+
     ]);
 
-    return { domain, uptime, latency, ssl, seo, vulnerabilities, traffic };
+    return {
+      domain,
+      uptime,
+      latency,
+      ssl,
+      seo,
+      vulnerabilities: vulnerabilities || {}, // 🔥 never undefined
+      traffic
+    };
+
   } catch (err) {
     console.error(`Metrics fetch failed for ${domain}:`, err);
     return null;
   }
 }
+
+
+(async () => {
+  try {
+    const res = await fetch(`${API_BASE}/vulnerabilities/${domain}`);
+    if (!res.ok) {
+      console.error("Vulnerabilities API failed:", res.status);
+      return null;
+    }
+    return await res.json();
+  } catch (e) {
+    console.error("Vulnerabilities fetch error:", e);
+    return null;
+  }
+})(),
 
 
 // ---------------------------
