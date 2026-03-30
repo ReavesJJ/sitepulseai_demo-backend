@@ -77,10 +77,9 @@ app = FastAPI()
 # -----------------------
 
 # --- CORS ---
-origins = ["http://127.0.0.1:5500", "http://localhost:5500"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["http://127.0.0.1:5500", "http://localhost:5500"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -257,6 +256,8 @@ try:
 except FileNotFoundError:
     monitored_domains = []
 
+
+
 # Domain model for /add_url
 class DomainRequest(BaseModel):
     domain: str
@@ -283,6 +284,7 @@ def add_url(payload: dict):
 @app.get("/segments")
 def get_segments():
     return {"segments": GLOBAL_SEGMENTS}
+
 
 
 # Internal monitoring trigger
@@ -323,6 +325,7 @@ threading.Thread(target=monitoring_loop, daemon=True).start()
 def health_check():
     return {"status": "OK", "monitored_domains_count": len(monitored_domains)}
 
+
 @app.get("/")
 async def root():
     return {
@@ -340,6 +343,7 @@ def get_segments():
             return data
     except:
         return {"segments": {"default": []}}
+
 
 
 def get_ssl_expiry(domain: str):
