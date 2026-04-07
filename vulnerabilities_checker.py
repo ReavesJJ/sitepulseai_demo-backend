@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from vulnerabilities import scan_domain
 import asyncio
 
+
 router = APIRouter(
     prefix="/vulnerabilities",
     tags=["Vulnerabilities"]
@@ -17,15 +18,17 @@ async def async_scan_domain(domain: str) -> dict:
     except Exception:
         result = None
 
+
     # Fallback to prevent frontend errors
     if not result or "findings" not in result or "counts" not in result:
         return {
-            "domain": domain,
-            "findings": [],
-            "counts": {"critical": 0, "high": 0, "medium": 0, "low": 0},
-            "risk_score": 0
-        }
-
+    "domain": domain,
+    "findings": [],
+    "counts": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+    "risk_score": 0,
+    "status": "degraded"
+}
+    
     # Calculate a simple real-time risk score based on severity counts
     counts = result.get("counts", {})
     risk_score = (
@@ -39,12 +42,27 @@ async def async_scan_domain(domain: str) -> dict:
     return result
     
 
+def classify_risk(score):
+    if score >= 15:
+        return "CRITICAL"
+    elif score >= 8:
+        return "HIGH"
+    elif score >= 3:
+        return "MEDIUM"
+    return "LOW"
+
+
+
+
+
+
+
 @router.get("/{domain}")
 async def vuln_card(domain: str):
-    """
-    Unified vulnerability endpoint for the dashboard.
-    Returns SSL/TLS + header findings + real-time risk score
-    """
-    return await async_scan_domain(domain)
+    result = await async_scan_domain(domain)
 
-
+    return {
+        "status": "ok",
+        "service": "vulnerability",
+        "data": result
+    }
