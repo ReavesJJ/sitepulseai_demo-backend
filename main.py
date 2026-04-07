@@ -471,6 +471,7 @@ def check_vulnerabilities(domain: str):
 
     # 🔐 SSL DATA (restored)
     ssl_info = get_ssl_expiry(domain)
+    
 
     # ✅ FINAL RESPONSE (matches frontend expectations)
     return {
