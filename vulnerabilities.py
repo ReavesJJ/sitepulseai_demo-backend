@@ -106,6 +106,8 @@ async def scan_domain(domain: str, license_level: str = "free"):
     # Return cached if available
     if domain in cache:
         cached = cache[domain]
+
+        
         # Add risk_score if missing
         if "risk_score" not in cached:
             counts = cached.get("counts", {})
@@ -119,6 +121,8 @@ async def scan_domain(domain: str, license_level: str = "free"):
 
     findings = []
 
+    
+
     # Run blocking scans in a separate thread for async safety
     findings_ssl, findings_headers = await asyncio.gather(
         asyncio.to_thread(scan_ssl, domain),
@@ -126,6 +130,8 @@ async def scan_domain(domain: str, license_level: str = "free"):
     )
     findings += findings_ssl
     findings += findings_headers
+
+
 
     # Optionally: license-gated deep scans could go here
 
