@@ -71,43 +71,24 @@ async function fetchAllMetrics(domain) {
 
       fetch(`${API_BASE}/uptime/${domain}`).then(r => r.json()),
 
+
       fetch(`${API_BASE}/latency/${domain}`).then(r => r.json()),
+
 
       fetch(`${API_BASE}/ssl/${domain}`).then(r => r.json()),
 
+
       fetch(`${API_BASE}/seo/${domain}`).then(r => r.json()),
 
-      // 🔥 SAFE VERSION
-      (async () => {
-        try {
-          const res = await fetch(`${API_BASE}/vulnerabilities/${domain}`);
-          if (!res.ok) return null;
-          return await res.json();
-        } catch {
-          return null;
-        }
-      })(),
-
-      fetch(`${API_BASE}/traffic/${domain}`).then(r => r.json())
 
     ]);
 
-    return {
-      domain,
-      uptime,
-      latency,
-      ssl,
-      seo,
-      vulnerabilities: vulnerabilities || {}, // 🔥 never undefined
-      traffic
-    };
-
+    return { domain, uptime, latency, ssl, seo, vulnerabilities, traffic };
   } catch (err) {
     console.error(`Metrics fetch failed for ${domain}:`, err);
     return null;
   }
 }
-
 
 
 // ---------------------------
@@ -136,8 +117,16 @@ function renderGrid(resultsList) {
     latencyHTML += `${domain} → ${r.latency?.
         response_time_ms ?? "--"} ms<br>`;
 
-    sslHTML += `${domain} → ${r.ssl?.valid ? "Valid" : "Invalid"}<br>`;
 
+const isValid = r.ssl?.valid;
+const days = r.ssl?.expires_in_days;
+const managed = r.ssl?.managed;
+
+if (typeof days === "number") {
+  sslHTML += `${domain} → ${isValid ? "Valid" : "Invalid"} | Expires in ${days} days | Managed: ${managed ? "Yes" : "No"}<br>`;
+} else {
+  sslHTML += `${domain} → SSL Unknown<br>`;
+}
     seoHTML += `${domain} → ${r.seo?.score ?? "--"}<br>`;
 
     vulnHTML += `${domain} → ${r.vulnerabilities?.count ?? ""}<br>`;
