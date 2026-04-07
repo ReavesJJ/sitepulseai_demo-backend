@@ -20,18 +20,24 @@
     </div>
   </div>
 
-  <div class="mt-6 mb-6 p-4 bg-[#111827] p-4 rounded shadow border-2 border-[#2563EB]">
-    <div class="flex flex-col sm:flex-row sm:items-center gap-2">
-      <input id="multi-url-input" type="text" placeholder="Enter additional URL" class="flex-1 px-4 py-2 rounded border border-purple-400 bg-[#F3E8FF] text-purple-800 focus:ring-2 focus:ring-purple-500 focus:outline-none" />
+  
+   <div class="mt-6 p-4 bg-[#111827] p-4 rounded shadow border-2 border-[#2563EB]">
+
+   <div class="border border-[#2563EB] rounded-lg p-3 flex items-center justify-center gap-3">
+    
+  <input id="multi-url-input" type="text" placeholder="Enter additional URL" class="flex-1 ml-8  px-2 py-2 rounded border border-purple-400 bg-[#F3E8FF] text-purple-800 focus:ring-2 focus:ring-purple-500 focus:outline-none" />
 
       <button 
-  id="addButton"
+  id="addButton" 
   class="bg-purple-500 hover:bg-purple-400 text-white font-semibold px-4 py-2 rounded shadow transition">
   Add URL
 </button>
     <ul id="multi-url-list" class="pl-6 mt-4 space-y-1 text-gray-700 text-sm"></ul>
   </div>
   
+  <div class="mt-6"></div>
+
+
 
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
     <div class="bg-[#111827] p-4 rounded shadow border-2 border-[#2563EB]">
@@ -39,6 +45,7 @@
       <p id="uptime" class="text-xl text-green-600 mt-2"></p>
     </div>
 
+    
     <div class="bg-[#111827] p-4 rounded shadow border-2 border-[#2563EB]">
       <h2 class="font-bold text-yellow-400 shadow-yellow-300 drop-shadow-lg">Response Time</h2>
       <p id="response-time" class="text-xl text-purple-600 mt-2"></p>
