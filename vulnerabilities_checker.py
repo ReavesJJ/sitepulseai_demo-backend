@@ -54,9 +54,6 @@ def classify_risk(score):
 
 
 
-
-
-
 @router.get("/{domain}")
 async def vuln_card(domain: str):
     result = await async_scan_domain(domain)
