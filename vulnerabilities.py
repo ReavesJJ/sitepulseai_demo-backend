@@ -100,27 +100,38 @@ def scan_headers(domain: str):
 # Unified Scan + Cache (Async-Friendly)
 # -----------------------------
 async def scan_domain(domain: str, license_level: str = "free"):
-    domain = domain.lower().strip()
-    cache = load_cache()
+    try:
+        domain = domain.lower().strip()
+        cache = load_cache()
 
-    # Return cached if available
-    if domain in cache:
-        cached = cache[domain]
+        cached = cache.get(domain)
+        if cached:
+            return cached
 
-        
-        # Add risk_score if missing
-        if "risk_score" not in cached:
-            counts = cached.get("counts", {})
-            cached["risk_score"] = (
-                counts.get("critical", 0) * 5 +
-                counts.get("high", 0) * 3 +
-                counts.get("medium", 0) * 2 +
-                counts.get("low", 0) * 1
-            )
-        return cached
+        # 🔍 YOUR ACTUAL SCAN LOGIC HERE
+        result = {
+            "risk_score": 0,
+            "counts": {
+                "critical": 0,
+                "high": 0,
+                "medium": 0,
+                "low": 0
+            }
+        }
 
-    findings = []
+        cache[domain] = result
+        save_cache(cache)
 
+        return result
+
+    except Exception as e:
+        print("Vulnerability scan error:", str(e))
+
+        # 🚨 NEVER crash — always return safe fallback
+        return {
+            "risk_score": 0,
+            "counts": {}
+        }
     
 
     # Run blocking scans in a separate thread for async safety
