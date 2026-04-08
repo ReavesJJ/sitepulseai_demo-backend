@@ -53,13 +53,13 @@ def classify_risk(score):
 
 
 
-
-@router.get("/{domain}")
-async def vuln_card(domain: str):
-    result = await async_scan_domain(domain)
-
-    return {
-        "status": "ok",
-        "service": "vulnerability",
-        "data": result
-    }
+@router.get("/vulnerabilities/{domain}")
+async def get_vulnerabilities(domain: str):
+    try:
+        return await scan_domain(domain)
+    except Exception as e:
+        print("Route error:", str(e))
+        return {
+            "risk_score": 0,
+            "counts": {}
+        }
