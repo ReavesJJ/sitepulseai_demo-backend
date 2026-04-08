@@ -7,6 +7,30 @@
 // dashboard.js
 const API_BASE = "https://sitepulseai-demo-backend.onrender.com";
 
+
+// ✅ PUT THIS AT THE TOP OF dashboard.js
+
+async function fetchVulnerabilities(domain) {
+  try {
+    const res = await fetch(`${API_BASE}/vulnerabilities/${domain}`);
+    return await res.json();
+  } catch (err) {
+    console.error("Vulnerability fetch failed:", err);
+    return { risk_score: 0, counts: {} };
+  }
+}
+
+async function fetchTraffic(domain) {
+  try {
+    const res = await fetch(`${API_BASE}/traffic/${domain}`);
+    return await res.json();
+  } catch (err) {
+    console.error("Traffic fetch failed:", err);
+    return { visits: 0 };
+  }
+}
+
+
 // ---------------------------
 // DOM ELEMENTS
 // ---------------------------
@@ -58,30 +82,37 @@ async function loadDomains() {
 // ---------------------------
 // FETCH ALL METRICS FOR DOMAIN
 // ---------------------------
+
 async function fetchAllMetrics(domain) {
   try {
     const [
-      uptime,
-      latency,
-      ssl,
-      seo,
-      vulnerabilities,
-      traffic
-    ] = await Promise.all([
+  uptime,
+  latency,
+  ssl,
+  seo,
+  vulnerabilities,
+  traffic
+] = await Promise.all([
 
-      fetch(`${API_BASE}/uptime/${domain}`).then(r => r.json()),
+    
+
+  fetch(`${API_BASE}/uptime/${domain}`).then(r => r.json()),
+
+  fetch(`${API_BASE}/latency/${domain}`).then(r => r.json()),
+
+  fetch(`${API_BASE}/ssl/${domain}`).then(r => r.json()),
+
+  fetch(`${API_BASE}/seo/${domain}`).then(r => r.json()),
+
+  
+  // ✅ ADD THIS (you already expect traffic)
+  fetch(`${API_BASE}/traffic/${domain}`).then(r => r.json()),
 
 
-      fetch(`${API_BASE}/latency/${domain}`).then(r => r.json()),
+  fetch(`${API_BASE}/vulnerabilities/${domain}`).then(r => r.json())
 
 
-      fetch(`${API_BASE}/ssl/${domain}`).then(r => r.json()),
-
-
-      fetch(`${API_BASE}/seo/${domain}`).then(r => r.json()),
-
-
-    ]);
+]);
 
     return { domain, uptime, latency, ssl, seo, vulnerabilities, traffic };
   } catch (err) {
@@ -94,6 +125,7 @@ async function fetchAllMetrics(domain) {
 // ---------------------------
 // RENDER CARDS
 // ---------------------------
+
 function renderGrid(resultsList) {
   if (!resultsList || resultsList.length === 0) return;
 
@@ -129,11 +161,11 @@ if (typeof days === "number") {
 }
     seoHTML += `${domain} → ${r.seo?.score ?? "--"}<br>`;
 
-    vulnHTML += `${domain} → ${r.vulnerabilities?.count ?? ""}<br>`;
+    vulnHTML += `${domain} → ${r.vulnerabilities?.vulnerabilities?.risk_score ?? 0}<br>`;
 
     trafficHTML += `${domain} → ${r.traffic?.visits ?? ""}<br>`;
 
-    summaryHTML += `${domain}: ${r.uptime?.status === "up" ? "Operational" : ""}, ${r.latency?.load_time ? Math.round(r.latency.load_time * 1000) : "--"} ms<br>`;
+    summaryHTML += `${domain}: ${r.uptime?.status === "up" ? "Operational" : ""}, ${r.latency?.load_time ? Math.round(r.latency.load_time * 1000) : ""} <br>`;
 
 
     if ((r.vulnerabilities?.count ?? 0) > 0) recHTML += `${domain}: Patch ${r.vulnerabilities.count} vulnerabilities<br>`;
