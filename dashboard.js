@@ -8,17 +8,9 @@
 const API_BASE = "https://sitepulseai-demo-backend.onrender.com";
 
 
+
 // ✅ PUT THIS AT THE TOP OF dashboard.js
 
-async function fetchVulnerabilities(domain) {
-  try {
-    const res = await fetch(`${API_BASE}/vulnerabilities/${domain}`);
-    return await res.json();
-  } catch (err) {
-    console.error("Vulnerability fetch failed:", err);
-    return { risk_score: 0, counts: {} };
-  }
-}
 
 async function fetchTraffic(domain) {
   try {
@@ -26,10 +18,9 @@ async function fetchTraffic(domain) {
     return await res.json();
   } catch (err) {
     console.error("Traffic fetch failed:", err);
-    return { visits: 0 };
+    return { visitors_30d: 0, status: "Error" };
   }
 }
-
 
 // ---------------------------
 // DOM ELEMENTS
@@ -85,34 +76,24 @@ async function loadDomains() {
 
 async function fetchAllMetrics(domain) {
   try {
-    const [
+   const [
   uptime,
   latency,
   ssl,
   seo,
-  vulnerabilities,
+  vulnerabilitiesRaw,
   traffic
 ] = await Promise.all([
-
-    
-
   fetch(`${API_BASE}/uptime/${domain}`).then(r => r.json()),
-
   fetch(`${API_BASE}/latency/${domain}`).then(r => r.json()),
-
   fetch(`${API_BASE}/ssl/${domain}`).then(r => r.json()),
-
   fetch(`${API_BASE}/seo/${domain}`).then(r => r.json()),
-
-  
-  // ✅ ADD THIS (you already expect traffic)
-  fetch(`${API_BASE}/traffic/${domain}`).then(r => r.json()),
-
-
-  fetch(`${API_BASE}/vulnerabilities/${domain}`).then(r => r.json())
-
-
+  fetch(`${API_BASE}/vulnerabilities/${domain}`).then(r => r.json()),
+  fetch(`${API_BASE}/traffic/${domain}`).then(r => r.json())
 ]);
+
+// 🔥 flatten vulnerability response
+const vulnerabilities = vulnerabilitiesRaw?.vulnerabilities;
 
     return { domain, uptime, latency, ssl, seo, vulnerabilities, traffic };
   } catch (err) {
@@ -122,10 +103,11 @@ async function fetchAllMetrics(domain) {
 }
 
 
+
+
 // ---------------------------
 // RENDER CARDS
 // ---------------------------
-
 function renderGrid(resultsList) {
   if (!resultsList || resultsList.length === 0) return;
 
@@ -138,43 +120,128 @@ function renderGrid(resultsList) {
   let summaryHTML = "";
   let recHTML = "";
 
-
   resultsList.forEach(r => {
     if (!r) return;
+
+    console.log("FINAL OBJECT:", r); // ✅ NOW IN SCOPE
+
     const domain = r.domain;
 
 
+const visitors = r.traffic?.visitors_30d;
+const status = r.traffic?.status;
+
+let trafficDisplay;
+
+if (visitors !== null && visitors !== undefined && visitors > 0) {
+  trafficDisplay = `${visitors} visitors (30d)`;
+} else if (status === "Beta") {
+  trafficDisplay = "Beta (Data Pending)";
+} else if (status === "Error") {
+  trafficDisplay = "Traffic Unavailable";
+} else {
+  trafficDisplay = "No Traffic Data";
+}
+
+    // ---------------------------
+    // UPTIME
+    // ---------------------------
     uptimeHTML += `${domain} → ${r.uptime?.status || "Unknown"}<br>`;
 
-    latencyHTML += `${domain} → ${r.latency?.
-        response_time_ms ?? "--"} ms<br>`;
 
 
-const isValid = r.ssl?.valid;
-const days = r.ssl?.expires_in_days;
-const managed = r.ssl?.managed;
+    // ---------------------------
+    // LATENCY
+    // ---------------------------
+    latencyHTML += `${domain} → ${r.latency?.response_time_ms ?? "--"} ms<br>`;
 
-if (typeof days === "number") {
-  sslHTML += `${domain} → ${isValid ? "Valid" : "Invalid"} | Expires in ${days} days | Managed: ${managed ? "Yes" : "No"}<br>`;
-} else {
-  sslHTML += `${domain} → SSL Unknown<br>`;
-}
+
+
+    // ---------------------------
+    // SSL
+    // ---------------------------
+    const isValid = r.ssl?.valid;
+    const days = r.ssl?.expires_in_days;
+    const managed = r.ssl?.managed;
+
+    if (typeof days === "number") {
+      sslHTML += `${domain} → ${isValid ? "Valid" : "Invalid"} | Expires in ${days} days | Managed: ${managed ? "Yes" : "No"}<br>`;
+    } else {
+      sslHTML += `${domain} → SSL Unknown<br>`;
+    }
+
+    // ---------------------------
+    // SEO
+    // ---------------------------
     seoHTML += `${domain} → ${r.seo?.score ?? "--"}<br>`;
 
-    vulnHTML += `${domain} → ${r.vulnerabilities?.vulnerabilities?.risk_score ?? 0}<br>`;
 
+    // ---------------------------
+    // 🔥 VULNERABILITIES (FIXED)
+    // ---------------------------
+
+    // Handle BOTH possible structures
+    const vulnData =
+      r.vulnerabilities?.risk_score !== undefined
+        ? r.vulnerabilities
+        : r.vulnerabilities?.vulnerabilities;
+
+    if (!vulnData) {
+      vulnHTML += `${domain} → Scan Failed<br>`;
+    } else {
+      const riskScore = vulnData.risk_score;
+      const totalVulns = vulnData.total ?? 0;
+
+      vulnHTML += `${domain} → ${riskScore}<br>`;
+
+      if (totalVulns > 0) {
+        recHTML += `${domain}: Patch ${totalVulns} vulnerabilities<br>`;
+      }
+    }
+
+
+    // ---------------------------
+    // TRAFFIC
+    // ---------------------------
     trafficHTML += `${domain} → ${r.traffic?.visits ?? ""}<br>`;
 
-    summaryHTML += `${domain}: ${r.uptime?.status === "up" ? "Operational" : ""}, ${r.latency?.load_time ? Math.round(r.latency.load_time * 1000) : ""} <br>`;
+
+    trafficHTML += `
+  <div class="metric-card">
+    <h3>${domain}</h3>
+    <p>${trafficDisplay}</p>
+  </div>
+`;
 
 
-    if ((r.vulnerabilities?.count ?? 0) > 0) recHTML += `${domain}: Patch ${r.vulnerabilities.count} vulnerabilities<br>`;
+    // ---------------------------
+    // SUMMARY
+    // ---------------------------
+    summaryHTML += `${domain}: ${
+      r.uptime?.status === "up" ? "Operational" : ""
+    }, ${
+      r.latency?.load_time
+        ? Math.round(r.latency.load_time * 1000) + " ms"
+        : ""
+    }<br>`;
 
-    if (!r.ssl?.valid) recHTML += `${domain}: SSL misconfiguration detected<br>`;
 
-    if (!r.seo?.score) recHTML += `${domain}: SEO improvements recommended<br>`;
+    // ---------------------------
+    // RECOMMENDATIONS
+    // ---------------------------
+    if (!r.ssl?.valid) {
+      recHTML += `${domain}: SSL misconfiguration detected<br>`;
+    }
+
+    if (!r.seo?.score) {
+      recHTML += `${domain}: SEO improvements recommended<br>`;
+    }
   });
 
+
+  // ---------------------------
+  // RENDER TO UI
+  // ---------------------------
   uptimeEl.innerHTML = uptimeHTML || "--";
   responseEl.innerHTML = latencyHTML || "--";
   sslEl.innerHTML = sslHTML || "--";
@@ -184,6 +251,8 @@ if (typeof days === "number") {
   summaryEl.innerHTML = summaryHTML || "--";
   recEl.innerHTML = recHTML || "";
 }
+
+
 
 // ---------------------------
 // MONITORING LOOP (FIXED)
@@ -201,6 +270,8 @@ async function monitoringLoop() {
 
   renderGrid(allResults);
 }
+
+
 
 // ---------------------------
 // ADD DOMAIN
@@ -225,6 +296,7 @@ async function addAdditionalURL() {
 
     addInput.value = "";
 
+
     // Immediate fetch for newly added domain
     const immediate = await fetchAllMetrics(domain);
     if (immediate) renderGrid([immediate]);
@@ -236,6 +308,7 @@ async function addAdditionalURL() {
   }
 }
 
+
 // ---------------------------
 // INIT
 // ---------------------------
@@ -243,6 +316,7 @@ async function init() {
   await loadDomains();
   monitoringLoop();
   setInterval(monitoringLoop, REFRESH_INTERVAL);
+
 
   // Attach button
   if (addButton) addButton.addEventListener("click", addAdditionalURL);
@@ -279,6 +353,7 @@ function renderDomainsTable(domainsData) {
   });
 
   html += `</table>`;
+
 
   container.innerHTML = html;
 }
