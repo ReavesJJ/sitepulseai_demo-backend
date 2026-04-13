@@ -111,7 +111,7 @@ def generate_certificate(site, uptime="100%", ssl="Valid"):
 
     draw.text(
         (200, 740),
-        "Telemetry Verification Authority — SitePulseAI Licensed Monitoring Infrastructure",
+        "This certificate verifies that monitoring data was autonomously collected, validated, and immutably recorded by — SitePulseAI Licensed Monitoring Infrastructure",
         fill="white",
         font=small_font
     )
@@ -128,6 +128,6 @@ def generate_certificate(site, uptime="100%", ssl="Valid"):
 
 if __name__ == "__main__":
 
-    site = "example.com"
+    site = "sitepulseai.com"
 
     generate_certificate(site)
