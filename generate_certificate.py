@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont
 
+# Base directories
 OUTPUT_DIR = "certificates"
 LOG_DIR = "telemetry_logs"
 
@@ -17,11 +18,25 @@ def generate_certificate(site, uptime="100%", ssl="Valid"):
     issued_time = datetime.utcnow()
     timestamp = issued_time.strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    # Monitoring window (new upgrade)
+    # Monitoring window
     monitoring_start = issued_time - timedelta(minutes=15)
-    monitoring_window = f"{monitoring_start.strftime('%Y-%m-%d %H:%M UTC')} → {issued_time.strftime('%Y-%m-%d %H:%M UTC')}"
+    monitoring_window = (
+        f"{monitoring_start.strftime('%Y-%m-%d %H:%M UTC')} → "
+        f"{issued_time.strftime('%Y-%m-%d %H:%M UTC')}"
+    )
 
     cert_id = f"SPAI-{uuid.uuid4().hex[:10].upper()}"
+
+    # ==============================
+    # Multi-domain isolation layer
+    # ==============================
+    domain_folder = site.replace(".", "_")
+
+    cert_output_dir = os.path.join(OUTPUT_DIR, domain_folder)
+    log_output_dir = os.path.join(LOG_DIR, domain_folder)
+
+    os.makedirs(cert_output_dir, exist_ok=True)
+    os.makedirs(log_output_dir, exist_ok=True)
 
     # Monitoring Node ID
     node_id = "SPAI-MON-VA01"
@@ -55,8 +70,8 @@ def generate_certificate(site, uptime="100%", ssl="Valid"):
         "audit_log_reference": log_ref
     }
 
-    # Save audit log
-    log_file = os.path.join(LOG_DIR, f"{log_ref}.json")
+    # Save audit log (DOMAIN-SPECIFIC)
+    log_file = os.path.join(log_output_dir, f"{log_ref}.json")
     with open(log_file, "w") as f:
         json.dump(audit_log, f, indent=4)
 
@@ -77,14 +92,18 @@ def generate_certificate(site, uptime="100%", ssl="Valid"):
         small_font = ImageFont.load_default()
 
     # Title
-    draw.text((180, 60), "SitePulseAI Telemetry Certificate", fill="white", font=title_font)
+    draw.text(
+        (180, 60),
+        "SitePulseAI Telemetry Certificate",
+        fill="white",
+        font=title_font
+    )
 
     draw.line((150, 150, 1050, 150), fill="white", width=2)
 
     # Core verification
     draw.text((200, 190), f"Site: {site}", fill="white", font=body_font)
 
-    # New verification block
     draw.text((200, 240), "Telemetry Verification Status: VERIFIED", fill="white", font=small_font)
     draw.text((200, 270), "Monitoring Infrastructure: ACTIVE", fill="white", font=small_font)
     draw.text((200, 300), "Telemetry Integrity: VALIDATED", fill="white", font=small_font)
@@ -92,10 +111,8 @@ def generate_certificate(site, uptime="100%", ssl="Valid"):
     draw.text((200, 340), f"Verified Uptime: {uptime}", fill="white", font=body_font)
     draw.text((200, 390), f"SSL Status: {ssl}", fill="white", font=body_font)
 
-    # Monitoring window (new)
     draw.text((200, 440), f"Monitoring Window: {monitoring_window}", fill="white", font=small_font)
 
-    # Telemetry identifiers
     draw.text((200, 490), f"Monitoring Node: {node_id}", fill="white", font=small_font)
     draw.text((200, 520), f"Telemetry Fingerprint: {fingerprint}", fill="white", font=small_font)
     draw.text((200, 550), f"Audit Log Ref: {log_ref}", fill="white", font=small_font)
@@ -116,8 +133,10 @@ def generate_certificate(site, uptime="100%", ssl="Valid"):
         font=small_font
     )
 
-    filename = f"{site.replace('.','_')}_{cert_id}.png"
-    path = os.path.join(OUTPUT_DIR, filename)
+    filename = f"{site.replace('.', '_')}_{cert_id}.png"
+
+    # SAVE CERTIFICATE (DOMAIN-SPECIFIC)
+    path = os.path.join(cert_output_dir, filename)
 
     img.save(path)
 
