@@ -16,6 +16,7 @@ SECRET_KEY = "CHANGE_THIS_TO_LONG_RANDOM_SECRET"
 # -------------------------------
 # Utility Functions
 # -------------------------------
+
 def normalize_domain(url: str) -> str:
     """
     Normalize URLs for domain comparison (removes www., lowercase)
@@ -37,11 +38,27 @@ def generate_client_id(tier: str) -> str:
     return f"SPA-{tier.upper()}-{random_part}"
 
 
+# -------------------------------
+# FIX #1: Canonical domain sorting (signature stability)
+# -------------------------------
+def _canonical_domains(domains: List[str]) -> str:
+    """
+    Ensures consistent domain ordering for signature generation
+    """
+    return ",".join(sorted([d.lower().strip() for d in domains]))
+
+
 def _generate_signature(client_id: str, tier: str, domains: List[str], expiration_date: str) -> str:
     """
     Generate a SHA256 signature to verify license authenticity
     """
-    payload = f"{client_id}{tier}{','.join(domains)}{expiration_date}{SECRET_KEY}"
+    payload = (
+        f"{client_id}"
+        f"{tier}"
+        f"{_canonical_domains(domains)}"
+        f"{expiration_date}"
+        f"{SECRET_KEY}"
+    )
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -62,12 +79,14 @@ def _load_license(client_id: str) -> dict:
 # -------------------------------
 # Public License Functions
 # -------------------------------
+
 def create_license(tier: str, domains: List[str], expiration_date: str) -> str:
     """
     Creates a new license file and returns the client ID
     """
     client_id = generate_client_id(tier)
     signature = _generate_signature(client_id, tier, domains, expiration_date)
+
     license_data = {
         "active": True,
         "tier": tier.lower(),
@@ -77,6 +96,7 @@ def create_license(tier: str, domains: List[str], expiration_date: str) -> str:
         "created_at": datetime.utcnow().isoformat(),
         "features": tier_features(tier)
     }
+
     _save_license(client_id, license_data)
     return client_id
 
@@ -94,13 +114,14 @@ def get_license(client_id: str) -> dict:
         _save_license(client_id, license_data)
         raise HTTPException(status_code=403, detail="License expired.")
 
-    # Signature verification
+    # Signature verification (FIXED: uses canonical domain order)
     expected_sig = _generate_signature(
         client_id,
         license_data["tier"],
         license_data["domains"],
         license_data["expiration_date"]
     )
+
     if expected_sig != license_data.get("signature"):
         raise HTTPException(status_code=403, detail="Invalid license signature.")
 
@@ -112,8 +133,10 @@ def validate_domain(client_id: str, requested_domain: str):
     Ensure client only monitors allowed domains
     """
     license_data = get_license(client_id)
+
     allowed = [normalize_domain(d) for d in license_data.get("domains", [])]
     req_norm = normalize_domain(requested_domain)
+
     if req_norm not in allowed:
         raise HTTPException(
             status_code=403,
@@ -127,6 +150,7 @@ def check_feature_access(client_id: str, feature: str):
     Ensure feature is allowed under license tier
     """
     license_data = get_license(client_id)
+
     if feature not in license_data.get("features", []):
         raise HTTPException(
             status_code=403,
@@ -135,13 +159,33 @@ def check_feature_access(client_id: str, feature: str):
     return True
 
 
+# -------------------------------
+# FIX #2: Enforcement Guard Layer (router-level protection)
+# -------------------------------
+def enforce_domain_guard(client_id: str, domains: List[str]):
+    """
+    Ensures monitoring batch cannot include unauthorized domains
+    """
+    license_data = get_license(client_id)
+
+    allowed = set([normalize_domain(d) for d in license_data["domains"]])
+    requested = set([normalize_domain(d) for d in domains])
+
+    invalid = requested - allowed
+
+    if invalid:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Unauthorized domains detected: {list(invalid)}"
+        )
+
+
 def tier_features(tier: str) -> List[str]:
     """
     Map tier names to allowed features
     """
     mapping = {
         "tier_1": ["ssl", "uptime", "seo", "latency", "traffic", "vulnerabilities"],
-        # future tiers can be added here
     }
     return mapping.get(tier.lower(), [])
 
@@ -155,7 +199,9 @@ def add_client(client_id: str, tier: str, domains: List[str], expiration_date: s
     """
     if os.path.exists(os.path.join(LICENSE_FOLDER, f"{client_id}.json")):
         raise HTTPException(status_code=400, detail="Client ID already exists.")
+
     signature = _generate_signature(client_id, tier, domains, expiration_date)
+
     license_data = {
         "active": True,
         "tier": tier.lower(),
@@ -165,5 +211,6 @@ def add_client(client_id: str, tier: str, domains: List[str], expiration_date: s
         "created_at": datetime.utcnow().isoformat(),
         "features": tier_features(tier)
     }
+
     _save_license(client_id, license_data)
     return client_id
