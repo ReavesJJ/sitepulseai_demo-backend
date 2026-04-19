@@ -7,10 +7,6 @@ import zipfile
 BASE_TEMPLATE = "template_system"   # your master system folder
 OUTPUT_DIR = "builds"
 
-if not os.path.exists(OUTPUT_DIR):
-    os.makedirs(OUTPUT_DIR)
-
-
 def generate_license(client_name):
     return {
         "client": client_name,
