@@ -12,12 +12,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
-from fastapi import FastAPI, Depends
-from license_enforcer import enforce_license
 
-app = FastAPI(
-    dependencies=[Depends(enforce_license)]
-)
 
 
 
