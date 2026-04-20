@@ -67,6 +67,6 @@ def build_client_package(client_name, domains):
 
 # Example usage
 build_client_package(
-    client_name="ACME Corp",
-    domains=["acme.com", "portal.acme.com"]
+    client_name="SitePulseAI",
+    domains=["ursmiledental.com", ""]
 )
