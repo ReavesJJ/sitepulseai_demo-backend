@@ -1,245 +1,224 @@
-# license_enforcer.py (RSA VERSION)
+# License_enforcer.py
 
 import os
 import json
+import hashlib
 import uuid
 from datetime import datetime
 from typing import List
-from fastapi import HTTPException, Request
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.fernet import Fernet
+from urllib.parse import urlparse
+from fastapi import HTTPException
 
 # -------------------------------
-# CONFIG
+# Configuration
 # -------------------------------
 LICENSE_FOLDER = "licenses"
-PUBLIC_KEY_PATH = "verify_key.pem"
-
-FERNET_KEY = os.getenv("LICENSE_ENCRYPTION_KEY", Fernet.generate_key().decode())
-fernet = Fernet(FERNET_KEY.encode())
-
-# Load public key (used for verification ONLY)
-with open(PUBLIC_KEY_PATH, "rb") as f:
-    PUBLIC_KEY = serialization.load_pem_public_key(f.read())
+SECRET_KEY = "CHANGE_THIS_TO_LONG_RANDOM_SECRET"
 
 # -------------------------------
-# UTILITIES
+# Utility Functions
 # -------------------------------
 
 def normalize_domain(url: str) -> str:
-    from urllib.parse import urlparse
+    """
+    Normalize URLs for domain comparison (removes www., lowercase)
+    """
     try:
         parsed = urlparse(url)
         domain = parsed.netloc if parsed.netloc else parsed.path
         return domain.lower().replace("www.", "")
-    except:
+    except Exception:
         return url.lower()
 
 
 def generate_client_id(tier: str) -> str:
-    return f"SPA-{tier.upper()}-{uuid.uuid4().hex[:8].upper()}"
-
-
-def _canonical_payload(data: dict) -> str:
     """
-    Ensures consistent signing payload
+    Generate a unique client ID per license
     """
-    return json.dumps({
-        "client_id": data["client_id"],
-        "tier": data["tier"],
-        "domains": sorted([normalize_domain(d) for d in data["domains"]]),
-        "max_sites": data["max_sites"],
-        "expiration_date": data["expiration_date"]
-    }, separators=(",", ":"), sort_keys=True)
+    random_part = uuid.uuid4().hex[:8].upper()
+    return f"SPA-{tier.upper()}-{random_part}"
 
 
 # -------------------------------
-# 🔐 ENCRYPTION LAYER
+# FIX #1: Canonical domain sorting (signature stability)
 # -------------------------------
 
-def _encrypt(data: dict) -> bytes:
-    return fernet.encrypt(json.dumps(data).encode())
+def _canonical_domains(domains: List[str]) -> str:
+    """
+    Ensures consistent domain ordering for signature generation
+    """
+    return ",".join(sorted([d.lower().strip() for d in domains]))
 
 
-def _decrypt(data: bytes) -> dict:
-    return json.loads(fernet.decrypt(data).decode())
+def _generate_signature(client_id: str, tier: str, domains: List[str], expiration_date: str) -> str:
+    """
+    Generate a SHA256 signature to verify license authenticity
+    """
+    payload = (
+        f"{client_id}"
+        f"{tier}"
+        f"{_canonical_domains(domains)}"
+        f"{expiration_date}"
+        f"{SECRET_KEY}"
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
-# -------------------------------
-# FILE SYSTEM
-# -------------------------------
-
-def _save_license(client_id, data):
+def _save_license(client_id: str, license_data: dict):
     os.makedirs(LICENSE_FOLDER, exist_ok=True)
-    encrypted = _encrypt(data)
+    path = os.path.join(LICENSE_FOLDER, f"{client_id}.json")
 
-    with open(f"{LICENSE_FOLDER}/{client_id}.lic", "wb") as f:
-        f.write(encrypted)
+    with open(path, "w") as f:
+        json.dump(license_data, f, indent=4)
 
 
-def _load_license(client_id):
-    path = f"{LICENSE_FOLDER}/{client_id}.lic"
+def _load_license(client_id: str) -> dict:
+    path = os.path.join(LICENSE_FOLDER, f"{client_id}.json")
 
     if not os.path.exists(path):
-        raise HTTPException(status_code=403, detail="License not found")
+        raise HTTPException(status_code=403, detail="License not found.")
 
-    with open(path, "rb") as f:
-        encrypted = f.read()
-
-    try:
-        return _decrypt(encrypted)
-    except:
-        raise HTTPException(status_code=403, detail="License corrupted")
+    with open(path, "r") as f:
+        return json.load(f)
 
 
 # -------------------------------
-# 🔐 RSA SIGNATURE VERIFICATION
+# Public License Functions
 # -------------------------------
 
-def verify_signature(data: dict):
-    signature = bytes.fromhex(data["signature"])
-    payload = _canonical_payload(data).encode()
+def create_license(tier: str, domains: List[str], expiration_date: str) -> str:
+    """
+    Creates a new license file and returns the client ID
+    """
+    client_id = generate_client_id(tier)
+    signature = _generate_signature(client_id, tier, domains, expiration_date)
 
-    try:
-        PUBLIC_KEY.verify(
-            signature,
-            payload,
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH
-            ),
-            hashes.SHA256()
-        )
-    except:
-        raise HTTPException(status_code=403, detail="Invalid license signature")
+    license_data = {
+        "active": True,
+        "tier": tier.lower(),
+        "domains": domains,
+        "expiration_date": expiration_date,
+        "signature": signature,
+        "created_at": datetime.utcnow().isoformat(),
+        "features": tier_features(tier)
+    }
 
-
-# -------------------------------
-# 🔒 CORE VALIDATION
-# -------------------------------
-
-def enforce_site_limit(data):
-    if len(data.get("domains", [])) > data.get("max_sites", 0):
-        raise HTTPException(status_code=403, detail="Exceeded max_sites")
+    _save_license(client_id, license_data)
+    return client_id
 
 
-def get_license(client_id: str):
-    data = _load_license(client_id)
+def get_license(client_id: str) -> dict:
+    """
+    Load and verify license. Checks expiration and signature.
+    """
+    license_data = _load_license(client_id)
 
-    # Expiration
-    exp = datetime.strptime(data["expiration_date"], "%Y-%m-%d")
+    # Expiration enforcement
+    exp = datetime.strptime(license_data["expiration_date"], "%Y-%m-%d")
     if datetime.utcnow() > exp:
-        raise HTTPException(status_code=403, detail="License expired")
+        license_data["active"] = False
+        _save_license(client_id, license_data)
+        raise HTTPException(status_code=403, detail="License expired.")
 
-    # RSA Signature
-    verify_signature(data)
+    # Signature verification
+    expected_sig = _generate_signature(
+        client_id,
+        license_data["tier"],
+        license_data["domains"],
+        license_data["expiration_date"]
+    )
 
-    # Site limit
-    enforce_site_limit(data)
-
-    return data
-
-
-# -------------------------------
-# 🚨 GLOBAL ENFORCEMENT
-# -------------------------------
-
-def enforce_license(request: Request):
-    client_id = request.headers.get("X-Client-ID")
-
-    if not client_id:
-        raise HTTPException(status_code=401, detail="Missing Client ID")
-
-    license_data = get_license(client_id)
-
-    request.state.license = license_data
-    request.state.client_id = client_id
+    if expected_sig != license_data.get("signature"):
+        raise HTTPException(status_code=403, detail="Invalid license signature.")
 
     return license_data
 
 
+def validate_domain(client_id: str, requested_domain: str):
+    """
+    Ensure client only monitors allowed domains
+    """
+    license_data = get_license(client_id)
+
+    allowed = [normalize_domain(d) for d in license_data.get("domains", [])]
+    req_norm = normalize_domain(requested_domain)
+
+    if req_norm not in allowed:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Domain '{requested_domain}' not allowed under this license."
+        )
+    return True
+
+
+def check_feature_access(client_id: str, feature: str):
+    """
+    Ensure feature is allowed under license tier
+    """
+    license_data = get_license(client_id)
+
+    if feature not in license_data.get("features", []):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Feature '{feature}' not permitted under {license_data['tier']} license."
+        )
+    return True
+
+
 # -------------------------------
-# 🔒 DOMAIN ENFORCEMENT
+# FIX #2: Enforcement Guard Layer
 # -------------------------------
 
-def enforce_domains(request: Request):
-    license_data = request.state.license
-
-    try:
-        body = request.json()
-    except:
-        return
+def enforce_domain_guard(client_id: str, domains: List[str]):
+    """
+    Ensures monitoring batch cannot include unauthorized domains
+    """
+    license_data = get_license(client_id)
 
     allowed = set([normalize_domain(d) for d in license_data["domains"]])
+    requested = set([normalize_domain(d) for d in domains])
 
-    requested = []
-
-    if isinstance(body, dict):
-        if "domain" in body:
-            requested.append(body["domain"])
-        if "domains" in body:
-            requested.extend(body["domains"])
-
-    invalid = set([normalize_domain(d) for d in requested]) - allowed
+    invalid = requested - allowed
 
     if invalid:
         raise HTTPException(
             status_code=403,
-            detail=f"Unauthorized domains: {list(invalid)}"
+            detail=f"Unauthorized domains detected: {list(invalid)}"
         )
 
 
-# -------------------------------
-# 🔒 FEATURE ENFORCEMENT
-# -------------------------------
-
-def enforce_feature(feature: str):
-    def checker(request: Request):
-        if feature not in request.state.license.get("features", []):
-            raise HTTPException(
-                status_code=403,
-                detail=f"{feature} not allowed"
-            )
-    return checker
+def tier_features(tier: str) -> List[str]:
+    """
+    Map tier names to allowed features
+    """
+    mapping = {
+        "tier_1": ["ssl", "uptime", "seo", "latency", "traffic", "vulnerabilities"],
+    }
+    return mapping.get(tier.lower(), [])
 
 
 # -------------------------------
-# 🧾 LICENSE CREATION (YOUR SIDE ONLY)
+# Optional: Dynamic Registration Helper
 # -------------------------------
 
-def create_license(tier: str, domains: List[str], expiration_date: str, max_sites: int, private_key):
-    client_id = generate_client_id(tier)
+def add_client(client_id: str, tier: str, domains: List[str], expiration_date: str):
+    """
+    Manually add a new client to the licenses folder
+    """
+    if os.path.exists(os.path.join(LICENSE_FOLDER, f"{client_id}.json")):
+        raise HTTPException(status_code=400, detail="Client ID already exists.")
 
-    data = {
-        "client_id": client_id,
-        "tier": tier,
+    signature = _generate_signature(client_id, tier, domains, expiration_date)
+
+    license_data = {
+        "active": True,
+        "tier": tier.lower(),
         "domains": domains,
-        "max_sites": max_sites,
         "expiration_date": expiration_date,
-        "issued_at": datetime.utcnow().isoformat(),
+        "signature": signature,
+        "created_at": datetime.utcnow().isoformat(),
         "features": tier_features(tier)
     }
 
-    payload = _canonical_payload(data).encode()
-
-    signature = private_key.sign(
-        payload,
-        padding.PSS(
-            mgf=padding.MGF1(hashes.SHA256()),
-            salt_length=padding.PSS.MAX_LENGTH
-        ),
-        hashes.SHA256()
-    ).hex()
-
-    data["signature"] = signature
-
-    _save_license(client_id, data)
-
+    _save_license(client_id, license_data)
     return client_id
-
-
-def tier_features(tier: str):
-    return {
-        "tier_1": ["ssl", "uptime", "seo", "latency", "traffic", "vulnerabilities"]
-    }.get(tier.lower(), [])
