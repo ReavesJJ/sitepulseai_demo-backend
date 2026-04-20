@@ -11,7 +11,7 @@ def sign_license(data):
 
 def generate_license():
     license_data = {
-        "client_id": "SPA-TIER_1-1333C7FB",
+        "client_id": "SPA-TIER_1-C4AFDB5C",
         "tier": "tier_1",
         "domains": [
             "sitepulseai.com",
