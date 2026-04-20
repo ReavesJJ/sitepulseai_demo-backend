@@ -18,14 +18,6 @@ from license_enforcer import enforce_license
 app = FastAPI(dependencies=[Depends(enforce_license)])
 
 
-from license_enforcer import enforce_feature
-
-@app.post("/scan/vulnerabilities",
-          dependencies=[Depends(enforce_feature("vulnerabilities"))])
-async def vuln_scan():
-    return {"scan": "started"}
-
-
 
 
 
