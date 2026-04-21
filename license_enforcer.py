@@ -165,20 +165,46 @@ def check_feature_access(client_id: str, feature: str):
 def enforce_domain_guard(client_id: str, domains: List[str]):
     """
     Ensures monitoring batch cannot include unauthorized domains
+    AND enforces max_sites limit (fully normalized + deduplicated)
     """
     license_data = get_license(client_id)
 
-    allowed = set([normalize_domain(d) for d in license_data["domains"]])
-    requested = set([normalize_domain(d) for d in domains])
+    # ---------------------------
+    # NORMALIZE + DEDUPLICATE INPUT DOMAINS
+    # ---------------------------
+    normalized_domains = set(
+        normalize_domain(d) for d in domains
+    )
 
-    invalid = requested - allowed
+    # ---------------------------
+    # ENFORCE MAX SITES LIMIT
+    # ---------------------------
+    max_allowed = license_data.get("max_sites", 0)
 
-    if invalid:
+    if len(normalized_domains) > max_allowed:
         raise HTTPException(
             status_code=403,
-            detail=f"Unauthorized domains detected: {list(invalid)}"
+            detail=f"Exceeded max_sites limit ({max_allowed}) for this license"
         )
 
+    # ---------------------------
+    # LICENSE ALLOWED DOMAINS
+    # ---------------------------
+    allowed_domains = set(
+        normalize_domain(d) for d in license_data.get("domains", [])
+    )
+
+    # ---------------------------
+    # WHITELIST ENFORCEMENT
+    # ---------------------------
+    invalid_domains = normalized_domains - allowed_domains
+
+    if invalid_domains:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Unauthorized domains detected: {list(invalid_domains)}"
+        )
+    
 
 def tier_features(tier: str) -> List[str]:
     """
