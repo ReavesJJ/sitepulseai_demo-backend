@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 import base64
 
-PUBLIC_KEY_PATH = "verify_key.pem"
+PUBLIC_KEY_PATH = ""
 
 with open(PUBLIC_KEY_PATH, "rb") as f:
     PUBLIC_KEY = serialization.load_pem_public_key(f.read())
