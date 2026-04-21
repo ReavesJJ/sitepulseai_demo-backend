@@ -11,12 +11,17 @@ from fastapi import HTTPException
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 import base64
+from cryptography.hazmat.primitives import serialization
+import os
 
-PUBLIC_KEY_PATH = ""
+PUBLIC_KEY_PEM = os.getenv("PUBLIC_KEY_PEM")
 
-with open(PUBLIC_KEY_PATH, "rb") as f:
-    PUBLIC_KEY = serialization.load_pem_public_key(f.read())
+if not PUBLIC_KEY_PEM:
+    raise RuntimeError("Missing PUBLIC_KEY_PEM")
 
+PUBLIC_KEY = serialization.load_pem_public_key(
+    PUBLIC_KEY_PEM.encode()
+)
 # -------------------------------
 # Configuration
 # -------------------------------
