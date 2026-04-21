@@ -56,7 +56,7 @@ from telemetry_attestation import generate_telemetry_attestation
 # License enforcement
 # -----------------------
 from license_enforcer import (
-    create_license,
+   
     get_license,
     validate_domain,
     check_feature_access
@@ -71,7 +71,7 @@ app = FastAPI(
     version="2.3.0"
 )
 
-app = FastAPI()
+app = FastAPI() 
 
 
 
@@ -238,11 +238,6 @@ def latest_telemetry():
 # -----------------------
 # License generation endpoint
 # -----------------------
-@app.post("/generate_license")
-def generate_license(tier: str = Query(...), domains: str = Query(...), expiration_date: str = Query(...)):
-    domains_list = [d.strip() for d in domains.split(",")]
-    client_id = create_license(tier, domains_list, expiration_date)
-    return {"client_id": client_id, "tier": tier, "domains": domains_list, "expiration_date": expiration_date}
 
 
 
