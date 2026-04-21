@@ -5,12 +5,13 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes, serialization
 
 # Load PRIVATE key (ONLY YOU HAVE THIS FILE)
-with open("private_key.pem", "rb") as f:
+with open("signing_key.pem", "rb") as f:
     PRIVATE_KEY = serialization.load_pem_private_key(
         f.read(),
         password=None
     )
 
+    
 def sign_license(payload: dict) -> str:
     data = json.dumps(payload, sort_keys=True).encode()
 
