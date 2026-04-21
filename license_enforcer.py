@@ -101,21 +101,6 @@ def _load_license(client_id: str) -> dict:
 
 # -------------------------------
 # Public License Functions
-# -------------------------------
-
-
-    license_data = {
-        "active": True,
-        "tier": tier.lower(),
-        "domains": domains,
-        "expiration_date": expiration_date,
-        "signature": signature,
-        "created_at": datetime.utcnow().isoformat(),
-        "features": tier_features(tier)
-    }
-
-    _save_license(client_id, license_data)
-    return client_id
 
 
 def get_license(client_id: str) -> dict:
@@ -130,6 +115,7 @@ def get_license(client_id: str) -> dict:
         license_data["active"] = False
         _save_license(client_id, license_data)
         raise HTTPException(status_code=403, detail="License expired.")
+
 
     # Signature verification
     _verify_signature(
