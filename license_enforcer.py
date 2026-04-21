@@ -8,12 +8,19 @@ from datetime import datetime
 from typing import List
 from urllib.parse import urlparse
 from fastapi import HTTPException
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+import base64
+
+PUBLIC_KEY_PATH = "verify_key.pem"
+
+with open(PUBLIC_KEY_PATH, "rb") as f:
+    PUBLIC_KEY = serialization.load_pem_public_key(f.read())
 
 # -------------------------------
 # Configuration
 # -------------------------------
 LICENSE_FOLDER = "licenses"
-SECRET_KEY = "CHANGE_THIS_TO_LONG_RANDOM_SECRET"
 
 # -------------------------------
 # Utility Functions
@@ -50,19 +57,24 @@ def _canonical_domains(domains: List[str]) -> str:
     return ",".join(sorted([d.lower().strip() for d in domains]))
 
 
-def _generate_signature(client_id: str, tier: str, domains: List[str], expiration_date: str) -> str:
-    """
-    Generate a SHA256 signature to verify license authenticity
-    """
+def _verify_signature(client_id: str, tier: str, domains: List[str], expiration_date: str, signature: str):
     payload = (
         f"{client_id}"
         f"{tier}"
         f"{_canonical_domains(domains)}"
         f"{expiration_date}"
-        f"{SECRET_KEY}"
-    )
-    return hashlib.sha256(payload.encode()).hexdigest()
+    ).encode()
 
+    try:
+        PUBLIC_KEY.verify(
+            base64.b64decode(signature),
+            payload,
+            padding.PKCS1v15(),
+            hashes.SHA256()
+        )
+    except Exception:
+        raise HTTPException(status_code=403, detail="Invalid license signature.")
+    
 
 def _save_license(client_id: str, license_data: dict):
     os.makedirs(LICENSE_FOLDER, exist_ok=True)
@@ -86,12 +98,6 @@ def _load_license(client_id: str) -> dict:
 # Public License Functions
 # -------------------------------
 
-def create_license(tier: str, domains: List[str], expiration_date: str) -> str:
-    """
-    Creates a new license file and returns the client ID
-    """
-    client_id = generate_client_id(tier)
-    signature = _generate_signature(client_id, tier, domains, expiration_date)
 
     license_data = {
         "active": True,
@@ -121,17 +127,13 @@ def get_license(client_id: str) -> dict:
         raise HTTPException(status_code=403, detail="License expired.")
 
     # Signature verification
-    expected_sig = _generate_signature(
-        client_id,
-        license_data["tier"],
-        license_data["domains"],
-        license_data["expiration_date"]
-    )
-
-    if expected_sig != license_data.get("signature"):
-        raise HTTPException(status_code=403, detail="Invalid license signature.")
-
-    return license_data
+    _verify_signature(
+    client_id,
+    license_data["tier"],
+    license_data["domains"],
+    license_data["expiration_date"],
+    license_data.get("signature")
+)
 
 
 def validate_domain(client_id: str, requested_domain: str):
@@ -201,24 +203,3 @@ def tier_features(tier: str) -> List[str]:
 # Optional: Dynamic Registration Helper
 # -------------------------------
 
-def add_client(client_id: str, tier: str, domains: List[str], expiration_date: str):
-    """
-    Manually add a new client to the licenses folder
-    """
-    if os.path.exists(os.path.join(LICENSE_FOLDER, f"{client_id}.json")):
-        raise HTTPException(status_code=400, detail="Client ID already exists.")
-
-    signature = _generate_signature(client_id, tier, domains, expiration_date)
-
-    license_data = {
-        "active": True,
-        "tier": tier.lower(),
-        "domains": domains,
-        "expiration_date": expiration_date,
-        "signature": signature,
-        "created_at": datetime.utcnow().isoformat(),
-        "features": tier_features(tier)
-    }
-
-    _save_license(client_id, license_data)
-    return client_id
