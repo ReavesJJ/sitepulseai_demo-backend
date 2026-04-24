@@ -1,76 +1,67 @@
-from fastapi import APIRouter, Header, HTTPException
-from typing import Optional
-import os
 from openai import OpenAI
+import requests
 
-router = APIRouter(prefix="/ai", tags=["AI Analysis"])
-
-client = OpenAI()
 
 SYSTEM_PROMPT = """
 You are an infrastructure monitoring interpretation layer for SitePulseAI.
 
-Your role is to interpret structured telemetry and present it in clear, professional, non-technical language.
-
-RULES:
-- Do NOT invent data
-- Do NOT exaggerate severity
-- Do NOT use alarmist language
-- Do NOT issue commands (no "fix", "patch", "must")
-- Use calm, observational tone
-- Translate technical findings into plain English
-- Focus on clarity for non-technical stakeholders
-
-OUTPUT FORMAT:
-
-Current Status:
-(1-2 sentence summary)
-
-Key Observations:
-- Bullet points
-
-Why It Matters:
-(Explain impact in simple terms)
-
-Suggested Considerations:
-(Soft guidance only, no commands)
-
-Confidence Note:
-(Short statement about telemetry-based interpretation)
+- No alarmist language
+- No commands
+- Non-technical clarity
+- Interpret only given telemetry
 """
 
-@router.post("/analyze")
-def analyze(payload: dict, x_openai_key: Optional[str] = Header(None)):
 
-    api_key = x_openai_key or os.getenv("OPENAI_API_KEY")
+def generate_analysis(payload: dict, provider: str, api_key: str):
 
-    if not api_key:
-        raise HTTPException(status_code=403, detail="AI disabled")
-
-    # Build structured input (IMPORTANT)
     user_input = f"""
 Domain: {payload.get('domain')}
-
-SSL Status: {payload.get('ssl')}
-
-Vulnerabilities Detected: {payload.get('vulnerabilities')}
-
-SEO Signals: {payload.get('seo')}
-
-Security Headers: {payload.get('headers')}
+SSL: {payload.get('ssl')}
+Vulnerabilities: {payload.get('vulnerabilities')}
+SEO: {payload.get('seo')}
+Headers: {payload.get('headers')}
 """
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        temperature=0.2,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_input}
-        ]
-    )
+    # 🔷 OpenAI
+    if provider == "openai":
+        client = OpenAI(api_key=api_key)
 
-    content = response.choices[0].message.content
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.2,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_input}
+            ]
+        )
 
-    return {
-        "analysis": content
-    }
+        return response.choices[0].message.content
+
+    # 🔷 Claude (Anthropic)
+    elif provider == "claude":
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+            },
+            json={
+                "model": "claude-3-haiku-20240307",
+                "max_tokens": 500,
+                "temperature": 0.2,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": SYSTEM_PROMPT + "\n\n" + user_input
+                    }
+                ]
+            }
+        )
+
+        data = response.json()
+
+        return data["content"][0]["text"]
+
+    else:
+        return "Unsupported AI provider"
