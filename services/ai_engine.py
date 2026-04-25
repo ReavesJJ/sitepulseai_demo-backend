@@ -1,6 +1,6 @@
 from openai import OpenAI
 import requests
-
+from ai_engine import AIEngine
 
 SYSTEM_PROMPT = """
 You are an infrastructure monitoring interpretation layer for SitePulseAI.
