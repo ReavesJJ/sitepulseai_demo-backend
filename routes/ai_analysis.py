@@ -9,7 +9,7 @@ import logging
 import time
 import concurrent.futures
 
-from service.ai_engine import call_ai_model
+from services.ai_engine import call_ai_model
 
 router = APIRouter()
 
