@@ -10,40 +10,163 @@
 <body class="bg-[#1E293B] text-gray-100">
 
 <div class="p-6 max-w-5xl mx-auto">
+
   <h1 class="text-3xl font-bold text-[#0E4FAE] text-center mt-6 mb-4">
     SitePulseAI Infrastructure Visibility Console
   </h1>
 
+  <!-- MAIN INPUT -->
   <div class="mt-6 p-4 bg-[#111827] rounded shadow border-2 border-[#2563EB]">
-    <div class="flex gap-2">
-      <input id="multi-url-input" type="text" placeholder="Enter additional URL"
-        class="flex-1 px-2 py-2 rounded border border-purple-400 bg-[#F3E8FF] text-purple-800"/>
-      <button id="addButton"
-        class="bg-purple-500 text-white px-4 py-2 rounded">
-        Add URL
+    <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+      <input id="website-url" type="text" placeholder="Enter website URL"
+        class="flex-1 px-4 py-2 rounded border border-green-300 bg-[#E6FFFA] text-green-900 focus:ring-2 focus:ring-green-400 focus:outline-none" />
+
+      <button onclick="startMonitoring()"
+        class="bg-green-400 hover:bg-green-300 text-white font-semibold px-4 py-2 rounded shadow transition">
+        Enable Monitoring
       </button>
     </div>
   </div>
 
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-    <div class="bg-[#111827] p-4 rounded border"><h2>Uptime</h2><p id="uptime"></p></div>
-    <div class="bg-[#111827] p-4 rounded border"><h2>Response</h2><p id="response-time"></p></div>
-    <div class="bg-[#111827] p-4 rounded border"><h2>SEO</h2><p id="seo-score"></p></div>
-    <div class="bg-[#111827] p-4 rounded border"><h2>SSL</h2><p id="ssl-status"></p></div>
-    <div class="bg-[#111827] p-4 rounded border"><h2>Traffic</h2><p id="traffic"></p></div>
-    <div class="bg-[#111827] p-4 rounded border"><h2>Vulnerabilities</h2><p id="vulnerabilities"></p></div>
+  <!-- ADDITIONAL URL -->
+  <div class="mt-6 p-4 bg-[#111827] rounded shadow border-2 border-[#2563EB]">
+    <div class="border border-[#2563EB] rounded-lg p-3 flex items-center justify-center gap-3">
+
+      <input id="multi-url-input" type="text" placeholder="Enter additional URL"
+        class="flex-1 ml-8 px-2 py-2 rounded border border-purple-400 bg-[#F3E8FF] text-purple-800 focus:ring-2 focus:ring-purple-500 focus:outline-none" />
+
+      <button id="addButton"
+        class="bg-purple-500 hover:bg-purple-400 text-white font-semibold px-4 py-2 rounded shadow transition">
+        Add URL
+      </button>
+
+      <ul id="multi-url-list" class="pl-6 mt-4 space-y-1 text-gray-700 text-sm"></ul>
+    </div>
+
+    <div class="mt-6"></div>
+
+    <!-- METRICS GRID -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+
+      <div class="bg-[#111827] p-4 rounded shadow border-2 border-[#2563EB]">
+        <h2 class="font-bold text-blue-400 shadow-blue-300 drop-shadow-lg">Uptime</h2>
+        <p id="uptime" class="text-xl text-green-600 mt-2"></p>
+      </div>
+
+      <div class="bg-[#111827] p-4 rounded shadow border-2 border-[#2563EB]">
+        <h2 class="font-bold text-yellow-400 shadow-yellow-300 drop-shadow-lg">Response Time</h2>
+        <p id="response-time" class="text-xl text-purple-600 mt-2"></p>
+      </div>
+
+      <div class="bg-[#111827] p-4 rounded shadow border-2 border-[#2563EB]">
+        <h2 class="font-bold text-pink-400 shadow-pink-300 drop-shadow-lg">SEO Status</h2>
+        <p id="seo-score" class="text-xl text-blue-600 mt-2"></p>
+      </div>
+
+      <div class="bg-[#111827] p-4 rounded shadow border-2 border-[#2563EB]">
+        <h2 class="font-bold text-orange-400 shadow-orange-300 drop-shadow-lg">SSL Certificate</h2>
+        <p id="ssl-status" class="text-xl text-red-600 mt-2"></p>
+
+        <div id="ssl-managed"></div>
+        <div id="ssl-renewed"></div>
+
+        <button id="enable-assisted">Enable Assisted Renewal</button>
+        <button id="approve-renewal">Approve Renewal</button>
+        <button id="dry-run">Test Renewal (Dry Run)</button>
+
+        <div id="dry-run-result"></div>
+
+        <div id="ssl-renewal-flag" class="ssl-renewal-flag"></div>
+
+        <button id="auto-fix-ssl-btn"
+          onclick="triggerSSLAutoFix()"
+          class="mt-2 bg-blue-500 hover:bg-blue-400 text-white px-3 py-1 rounded">
+          Assisted SSL Workflow
+        </button>
+
+        <div id="ssl-auto-fix-output" class="text-sm mt-2 text-yellow-400"></div>
+      </div>
+
+      <div class="bg-[#111827] p-4 rounded shadow border-2 border-[#2563EB]">
+        <h2 class="font-bold text-red-400">Site Traffic</h2>
+        <p id="traffic" class="text-xl text-purple-500 mt-2"></p>
+      </div>
+
+      <div class="bg-[#111827] p-4 rounded shadow border-2 border-[#2563EB]">
+        <h2 class="font-bold text-red-400">Vulnerabilities Detected</h2>
+        <p id="vulnerabilities" class="text-xl text-purple-500 mt-2"></p>
+      </div>
+
+    </div>
   </div>
 
-  <div class="bg-[#111827] p-4 mt-6 rounded border">
-    <h2>AI Summary</h2>
-    <p id="ai-summary"></p>
+  <!-- AI SUMMARY -->
+  <div class="bg-[#111827] p-4 rounded shadow border-2 border-[#2563EB] mb-8">
+    <h2 class="text-2xl font-bold text-green-400 shadow-green-300 drop-shadow-lg">
+      AI Summary
+    </h2>
+    <p id="ai-summary" class="text-orange-700"></p>
   </div>
+
+  <!-- AI RECOMMENDATIONS -->
+  <div class="bg-[#111827] p-6 rounded shadow border-2 border-[#2563EB] mt-6">
+    <h2 class="text-2xl font-bold mb-8 text-purple-600">AI Recommendations</h2>
+    <div id="ai-recommendations" class="text-red-700 leading-relaxed space-y-2"></div>
+  </div>
+
+  <!-- SAVED SITES -->
+  <div class="bg-[#111827] p-4 rounded shadow border-2 border-[#2563EB] mt-4 relative">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-2xl font-bold text-orange-400 shadow-blue-300 drop-shadow-lg">
+        Saved Sites
+      </h2>
+
+      <button onclick="clearSavedSites()"
+        class="bg-red-600 hover:bg-red-700 text-white text-sm px-3 py-1 rounded">
+        Delete
+      </button>
+    </div>
+
+    <ul id="saved-sites" class="list-none pl-0 mt-2 space-y-1 text-white-800 text-sm"></ul>
+  </div>
+
+  <div id="domains-table"></div>
+
 </div>
 
+
+
 <script>
+// ---------------------------
+// SitePulseAI Frontend Logic (Modular JS)
+// ---------------------------
+
+
+// ---------------------------
+// SitePulseAI Frontend (AI-Agnostic Architecture)
+// ---------------------------
+
 const API_BASE = "https://sitepulseai-demo-backend.onrender.com";
 const REFRESH_INTERVAL = 60000;
 
+// ---------------------------
+// DOM ELEMENTS
+// ---------------------------
+const addInput = document.getElementById("multi-url-input");
+const addButton = document.getElementById("addButton");
+
+const uptimeEl = document.getElementById("uptime");
+const responseEl = document.getElementById("response-time");
+const seoEl = document.getElementById("seo-score");
+const sslEl = document.getElementById("ssl-status");
+const trafficEl = document.getElementById("traffic");
+const vulnEl = document.getElementById("vulnerabilities");
+
+const aiSummaryEl = document.getElementById("ai-summary");
+
+// ---------------------------
+// STATE
+// ---------------------------
 let segments = {};
 
 // ---------------------------
@@ -55,14 +178,15 @@ function normalizeDomain(domain) {
 }
 
 // ---------------------------
-// TRAFFIC (RESTORED SAFE)
+// TRAFFIC (SAFE)
 // ---------------------------
 async function fetchTraffic(domain) {
   try {
     const res = await fetch(`${API_BASE}/traffic/${domain}`);
     if (!res.ok) throw new Error();
     return await res.json();
-  } catch {
+  } catch (err) {
+    console.error("Traffic fetch failed:", err);
     return { visitors_30d: 0, status: "Error" };
   }
 }
@@ -71,21 +195,26 @@ async function fetchTraffic(domain) {
 // AI CONFIG (CLIENT CONTROLLED)
 // ---------------------------
 function getAIConfig() {
-  return {
-    key: localStorage.getItem("ai_api_key"),
-    provider: localStorage.getItem("ai_provider") || "openai"
-  };
+  try {
+    return {
+      key: localStorage.getItem("ai_api_key"),
+      provider: localStorage.getItem("ai_provider") || "openai"
+    };
+  } catch {
+    return { key: null, provider: "openai" };
+  }
 }
 
 // ---------------------------
-// LOAD DOMAINS
+// LOAD SEGMENTS
 // ---------------------------
 async function loadDomains() {
   try {
     const res = await fetch(`${API_BASE}/segments`);
     const data = await res.json();
     segments = data.segments || {};
-  } catch {
+  } catch (err) {
+    console.error("Segments load failed:", err);
     segments = {};
   }
 }
@@ -121,7 +250,8 @@ async function fetchAllMetrics(domain) {
       traffic
     };
 
-  } catch {
+  } catch (err) {
+    console.error(`Metrics fetch failed for ${domain}:`, err);
     return null;
   }
 }
@@ -133,12 +263,14 @@ async function runAIAnalysis(resultsList) {
   const { key, provider } = getAIConfig();
 
   if (!key) {
-    document.getElementById("ai-summary").innerHTML = "AI not configured";
+    aiSummaryEl.innerHTML = "AI analysis not configured";
     return;
   }
 
   try {
-    const res = await fetch(`${API_BASE}/ai/analyze`, {
+    aiSummaryEl.innerHTML = "Analyzing system state...";
+
+    const response = await fetch(`${API_BASE}/ai/analyze`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -148,78 +280,130 @@ async function runAIAnalysis(resultsList) {
       body: JSON.stringify({ domains: resultsList })
     });
 
-    const data = await res.json();
+    if (!response.ok) throw new Error();
 
-    document.getElementById("ai-summary").innerHTML =
-      (data.analysis || "").replace(/\n/g, "<br>");
+    const data = await response.json();
 
-  } catch {
-    document.getElementById("ai-summary").innerHTML = "AI unavailable";
+    aiSummaryEl.innerHTML = data.analysis
+      ? data.analysis.replace(/\n/g, "<br>")
+      : "No AI output";
+
+  } catch (err) {
+    console.error("AI error:", err);
+    aiSummaryEl.innerHTML = "AI summary unavailable (not configured)";
   }
 }
 
 // ---------------------------
 // RENDER
 // ---------------------------
-function renderGrid(list) {
-  if (!list.length) return;
+function renderGrid(resultsList) {
+  if (!resultsList || resultsList.length === 0) return;
 
-  let uptime = "", latency = "", ssl = "", seo = "", vuln = "", traffic = "";
+  let uptimeHTML = "";
+  let latencyHTML = "";
+  let sslHTML = "";
+  let seoHTML = "";
+  let vulnHTML = "";
+  let trafficHTML = "";
 
-  list.forEach(r => {
+  resultsList.forEach(r => {
     if (!r) return;
 
-    uptime += `${r.domain} → ${r.uptime?.status}<br>`;
-    latency += `${r.domain} → ${r.latency?.response_time_ms} ms<br>`;
-    ssl += `${r.domain} → ${r.ssl?.valid ? "Valid" : "Invalid"}<br>`;
-    seo += `${r.domain} → ${r.seo?.score}<br>`;
-    vuln += `${r.domain} → ${r.vulnerabilities?.total || 0}<br>`;
-    traffic += `${r.domain} → ${r.traffic?.visitors_30d || 0}<br>`;
+    const domain = r.domain;
+
+    // ---------------------------
+    // UPTIME
+    // ---------------------------
+    uptimeHTML += `${domain} → ${r.uptime?.status || "Unknown"}<br>`;
+
+    // ---------------------------
+    // LATENCY
+    // ---------------------------
+    latencyHTML += `${domain} → ${r.latency?.response_time_ms ?? "--"} ms<br>`;
+
+    // ---------------------------
+    // SSL (ENHANCED LOGIC)
+    // ---------------------------
+    const isValid = r.ssl?.valid;
+    const days = r.ssl?.expires_in_days;
+    const managed = r.ssl?.managed;
+
+    if (typeof days === "number") {
+      sslHTML += `${domain} → ${isValid ? "Valid" : "Invalid"} | Expires in ${days} days | Managed: ${managed ? "Yes" : "No"}<br>`;
+    } else {
+      sslHTML += `${domain} → SSL Unknown<br>`;
+    }
+
+    // ---------------------------
+    // SEO
+    // ---------------------------
+    seoHTML += `${domain} → ${r.seo?.score ?? "--"}<br>`;
+
+    // ---------------------------
+    // VULNERABILITIES
+    // ---------------------------
+    vulnHTML += `${domain} → ${r.vulnerabilities?.total ?? 0}<br>`;
+
+    // ---------------------------
+    // TRAFFIC
+    // ---------------------------
+    trafficHTML += `${domain} → ${r.traffic?.visitors_30d ?? 0}<br>`;
   });
 
-  document.getElementById("uptime").innerHTML = uptime;
-  document.getElementById("response-time").innerHTML = latency;
-  document.getElementById("ssl-status").innerHTML = ssl;
-  document.getElementById("seo-score").innerHTML = seo;
-  document.getElementById("vulnerabilities").innerHTML = vuln;
-  document.getElementById("traffic").innerHTML = traffic;
+  uptimeEl.innerHTML = uptimeHTML;
+  responseEl.innerHTML = latencyHTML;
+  sslEl.innerHTML = sslHTML;
+  seoEl.innerHTML = seoHTML;
+  vulnEl.innerHTML = vulnHTML;
+  trafficEl.innerHTML = trafficHTML;
 
-  runAIAnalysis(list);
+  runAIAnalysis(resultsList);
 }
 
 // ---------------------------
 // LOOP
 // ---------------------------
 async function monitoringLoop() {
-  const results = [];
+  if (!segments || Object.keys(segments).length === 0) return;
+
+  const allResults = [];
 
   for (const segment in segments) {
     const domains = segments[segment];
-    const r = await Promise.all(domains.map(fetchAllMetrics));
-    r.forEach(x => x && results.push(x));
+    const results = await Promise.all(domains.map(fetchAllMetrics));
+    results.forEach(r => r && allResults.push(r));
   }
 
-  renderGrid(results);
+  renderGrid(allResults);
 }
 
 // ---------------------------
 // ADD DOMAIN
 // ---------------------------
 async function addAdditionalURL() {
-  const input = document.getElementById("multi-url-input");
-  const domain = normalizeDomain(input.value);
+  const domain = normalizeDomain(addInput.value);
 
-  if (!domain) return alert("Enter valid domain");
+  if (!domain) {
+    alert("Enter a valid domain");
+    return;
+  }
 
-  await fetch(`${API_BASE}/add_url`, {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ domain, segment: "default" })
-  });
+  try {
+    await fetch(`${API_BASE}/add_url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain, segment: "default" })
+    });
 
-  input.value = "";
-  await loadDomains();
-  monitoringLoop();
+    addInput.value = "";
+
+    await loadDomains();
+    monitoringLoop();
+
+  } catch (err) {
+    console.error("Add domain failed:", err);
+  }
 }
 
 // ---------------------------
@@ -230,11 +414,17 @@ async function init() {
   monitoringLoop();
   setInterval(monitoringLoop, REFRESH_INTERVAL);
 
-  document.getElementById("addButton")
-    .addEventListener("click", addAdditionalURL);
+  if (addButton) {
+    addButton.addEventListener("click", addAdditionalURL);
+  }
 }
 
 init();
+
+
+
+
+
 </script>
 
 </body>
