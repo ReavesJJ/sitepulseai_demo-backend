@@ -279,6 +279,26 @@ def add_url(payload: dict):
     return {"status": "added", "segments": GLOBAL_SEGMENTS}
 
 
+
+@app.post("/delete_url")
+def delete_url(data: dict):
+    domain = data.get("domain")
+
+    removed = False
+
+    for segment in GLOBAL_SEGMENTS:
+        if domain in GLOBAL_SEGMENTS[segment]:
+            GLOBAL_SEGMENTS[segment].remove(domain)
+            removed = True
+
+    return {
+        "status": "deleted" if removed else "not_found",
+        "domain": domain
+    }
+
+
+
+
 @app.get("/segments")
 def get_segments():
     return {"segments": GLOBAL_SEGMENTS}
