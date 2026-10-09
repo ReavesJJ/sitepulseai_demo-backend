@@ -11,7 +11,7 @@ import time
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from telemetry_certificate import generate_telemetry_attestation
+from telemetry_attestation import generate_telemetry_attestation
 import requests
 
 
