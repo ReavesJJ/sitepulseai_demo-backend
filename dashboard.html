@@ -21,12 +21,24 @@
       <input id="website-url" type="text" placeholder="Enter website URL"
         class="flex-1 px-4 py-2 rounded border border-green-300 bg-[#E6FFFA] text-green-900 focus:ring-2 focus:ring-green-400 focus:outline-none" />
 
-      <button onclick="startMonitoring()"
+      <button onclick="generateTelemetryCertificate()"
         class="bg-green-400 hover:bg-green-300 text-white font-semibold px-4 py-2 rounded shadow transition">
-        Enable Monitoring
+        Generate Telemetry Certificate
       </button>
+
     </div>
+
+
+     <!-- Certificate response appears here -->
+  <div id="certificate-status" class="mt-4 text-sm text-yellow-400"></div>
+
+  <div id="certificate-result" class="mt-4"></div>
+
+</div>
+
+
   </div>
+
 
   <!-- ADDITIONAL URL -->
   <div class="mt-6 p-4 bg-[#111827] rounded shadow border-2 border-[#2563EB]">
@@ -121,10 +133,7 @@
         Saved Sites
       </h2>
 
-      <button onclick="clearSavedSites()"
-        class="bg-red-600 hover:bg-red-700 text-white text-sm px-3 py-1 rounded">
-        Delete
-      </button>
+      
     </div>
 
     <ul id="saved-sites" class="list-none pl-0 mt-2 space-y-1 text-white-800 text-sm"></ul>
@@ -140,6 +149,117 @@
 // ---------------------------
 // SitePulseAI Frontend Logic (Modular JS)
 // ---------------------------
+
+// ---------------------------
+// GENERATE TELEMETRY CERTIFICATE
+// ---------------------------
+
+async function generateTelemetryCertificate() {
+
+  const input = document.getElementById("website-url");
+  const status = document.getElementById("certificate-status");
+  const result = document.getElementById("certificate-result");
+
+  if (!input || !status || !result) {
+    console.error("Telemetry Certificate elements not found.");
+    return;
+  }
+
+  const domain = input.value.trim();
+
+  if (!domain) {
+    status.textContent = "Enter a website URL first.";
+    result.innerHTML = "";
+    return;
+  }
+
+  status.textContent =
+    `Generating Telemetry Certificate for ${domain}...`;
+
+  result.innerHTML = "";
+
+  try {
+
+    const response = await fetch(
+      `${API_BASE}/generate_telemetry_certificate`,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json"
+        },
+
+        body: JSON.stringify({
+          domain: domain
+        })
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.detail ||
+        data.message ||
+        "Certificate generation failed."
+      );
+    }
+
+    status.textContent =
+      "Telemetry Certificate generated successfully.";
+
+    result.innerHTML = `
+      <div class="mt-4 p-4 bg-[#0b1220] border border-green-400 rounded">
+
+        <p class="text-green-400 font-semibold">
+          Certificate Generated
+        </p>
+
+        <p class="text-gray-300 text-sm mt-2">
+          Domain:
+          <span class="text-white">
+            ${data.domain || domain}
+          </span>
+        </p>
+
+        <p class="text-gray-300 text-sm mt-2">
+          Certificate ID:
+          <span class="text-white">
+            ${data.certificate_id || "--"}
+          </span>
+        </p>
+
+        <p class="text-gray-300 text-sm mt-2 break-all">
+          Certificate:
+          <span class="text-white">
+            ${data.certificate || "--"}
+          </span>
+        </p>
+
+        <p class="text-gray-300 text-sm mt-2">
+          Issued:
+          <span class="text-white">
+            ${data.timestamp || "--"}
+          </span>
+        </p>
+
+      </div>
+    `;
+
+  } catch (err) {
+
+    console.error(
+      "Telemetry Certificate generation failed:",
+      err
+    );
+
+    status.textContent =
+      `Certificate generation failed: ${err.message}`;
+
+  }
+}
+
+
 
 
 // ---------------------------
@@ -163,6 +283,9 @@ const trafficEl = document.getElementById("traffic");
 const vulnEl = document.getElementById("vulnerabilities");
 
 const aiSummaryEl = document.getElementById("ai-summary");
+
+// ✅ NEW (Saved Sites container)
+const savedSitesEl = document.getElementById("saved-sites");
 
 // ---------------------------
 // STATE
@@ -263,7 +386,7 @@ async function runAIAnalysis(resultsList) {
   const { key, provider } = getAIConfig();
 
   if (!key) {
-    aiSummaryEl.innerHTML = "AI analysis not configured";
+    aiSummaryEl.innerHTML = "AI summary unavailable (not configured)";
     return;
   }
 
@@ -295,7 +418,7 @@ async function runAIAnalysis(resultsList) {
 }
 
 // ---------------------------
-// RENDER
+// RENDER GRID
 // ---------------------------
 function renderGrid(resultsList) {
   if (!resultsList || resultsList.length === 0) return;
@@ -312,19 +435,9 @@ function renderGrid(resultsList) {
 
     const domain = r.domain;
 
-    // ---------------------------
-    // UPTIME
-    // ---------------------------
     uptimeHTML += `${domain} → ${r.uptime?.status || "Unknown"}<br>`;
-
-    // ---------------------------
-    // LATENCY
-    // ---------------------------
     latencyHTML += `${domain} → ${r.latency?.response_time_ms ?? "--"} ms<br>`;
 
-    // ---------------------------
-    // SSL (ENHANCED LOGIC)
-    // ---------------------------
     const isValid = r.ssl?.valid;
     const days = r.ssl?.expires_in_days;
     const managed = r.ssl?.managed;
@@ -335,19 +448,8 @@ function renderGrid(resultsList) {
       sslHTML += `${domain} → SSL Unknown<br>`;
     }
 
-    // ---------------------------
-    // SEO
-    // ---------------------------
     seoHTML += `${domain} → ${r.seo?.score ?? "--"}<br>`;
-
-    // ---------------------------
-    // VULNERABILITIES
-    // ---------------------------
     vulnHTML += `${domain} → ${r.vulnerabilities?.total ?? 0}<br>`;
-
-    // ---------------------------
-    // TRAFFIC
-    // ---------------------------
     trafficHTML += `${domain} → ${r.traffic?.visitors_30d ?? 0}<br>`;
   });
 
@@ -359,6 +461,60 @@ function renderGrid(resultsList) {
   trafficEl.innerHTML = trafficHTML;
 
   runAIAnalysis(resultsList);
+}
+
+// ---------------------------
+// ✅ RENDER SAVED SITES (NEW)
+// ---------------------------
+function renderSavedSites() {
+  if (!savedSitesEl) return;
+
+  const allDomains = Object.values(segments).flat();
+
+  if (allDomains.length === 0) {
+    savedSitesEl.innerHTML = "No monitored domains";
+    return;
+  }
+
+  savedSitesEl.innerHTML = "";
+
+  allDomains.forEach(domain => {
+    const row = document.createElement("div");
+    row.className = "flex justify-between items-center mb-2";
+
+    row.innerHTML = `
+  <span>${domain}</span>
+  <button
+    class="bg-red-500 hover:bg-red-700 transition-colors duration-200 px-2 py-1 rounded"
+    onclick="deleteDomain('${domain}')">
+    Delete
+  </button>
+`;
+
+    savedSitesEl.appendChild(row);
+  });
+}
+
+// ---------------------------
+// ✅ DELETE DOMAIN (NEW)
+// ---------------------------
+async function deleteDomain(domain) {
+  try {
+    await fetch(`${API_BASE}/delete_url`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ domain })
+    });
+
+    await loadDomains();
+    monitoringLoop();
+    renderSavedSites();
+
+  } catch (err) {
+    console.error("Delete failed:", err);
+  }
 }
 
 // ---------------------------
@@ -400,6 +556,7 @@ async function addAdditionalURL() {
 
     await loadDomains();
     monitoringLoop();
+    renderSavedSites();
 
   } catch (err) {
     console.error("Add domain failed:", err);
@@ -412,6 +569,8 @@ async function addAdditionalURL() {
 async function init() {
   await loadDomains();
   monitoringLoop();
+  renderSavedSites(); // ✅ integrated cleanly
+
   setInterval(monitoringLoop, REFRESH_INTERVAL);
 
   if (addButton) {
