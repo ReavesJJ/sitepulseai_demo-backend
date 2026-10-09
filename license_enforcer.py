@@ -127,6 +127,9 @@ def get_license(client_id: str) -> dict:
 )
 
 
+    return license_data
+
+
 def validate_domain(client_id: str, requested_domain: str):
     """
     Ensure client only monitors allowed domains
