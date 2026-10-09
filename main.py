@@ -11,7 +11,9 @@ import time
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from telemetry_certificate import generate_telemetry_attestation
 import requests
+
 
 
 
@@ -506,6 +508,81 @@ def check_vulnerabilities(domain: str):
         "ssl_expiry": ssl_info["ssl_expiry"],
         "days_remaining": ssl_info["days_remaining"],
         "ssl_status": ssl_info["ssl_status"]
+    }
+
+
+
+@app.post("/generate_telemetry_certificate")
+def generate_telemetry_certificate(payload: dict):
+
+    domain = payload.get("domain")
+
+    if not domain:
+        raise HTTPException(
+            status_code=400,
+            detail="Domain is required."
+        )
+
+    # ---------------------------------------
+    # CLIENT ID
+    # ---------------------------------------
+
+    client_id = "SPA-TIER_1-C4AFDB5C"
+
+    # ---------------------------------------
+    # LOAD EXISTING TELEMETRY
+    # ---------------------------------------
+
+    if not os.path.exists(TELEMETRY_FILE):
+        raise HTTPException(
+            status_code=404,
+            detail="No telemetry events found."
+        )
+
+    with open(TELEMETRY_FILE, "r") as f:
+        telemetry_events = json.load(f)
+
+    if not telemetry_events:
+        raise HTTPException(
+            status_code=404,
+            detail="No telemetry events available."
+        )
+
+    # ---------------------------------------
+    # GET LATEST TELEMETRY EVENT
+    # ---------------------------------------
+
+    latest_event = telemetry_events[-1]
+
+    # ---------------------------------------
+    # BUILD CERTIFICATE RESULTS
+    # ---------------------------------------
+
+    results = {
+        "domain": domain,
+        "telemetry": latest_event
+    }
+
+    # ---------------------------------------
+    # GENERATE CRYPTOGRAPHIC ATTESTATION
+    # ---------------------------------------
+
+    certificate = generate_telemetry_attestation(
+        client_id=client_id,
+        domain=domain,
+        results=results
+    )
+
+    # ---------------------------------------
+    # RETURN TO CONSOLE
+    # ---------------------------------------
+
+    return {
+        "status": "success",
+        "domain": domain,
+        "client_id": client_id,
+        "certificate": certificate,
+        "timestamp": datetime.utcnow().isoformat()
     }
 
 
