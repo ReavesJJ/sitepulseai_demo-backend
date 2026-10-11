@@ -1,0 +1,12 @@
+{
+    "client_id": "SPA-TIER_1-5CF062E6",
+    "tier": "tier_1",
+    "domains": [
+        "sitepulseai.com",
+        "api.sitepulseai.com"
+    ],
+    "max_sites": 5,
+    "expiration_date": "2027-12-31",
+    "issued_at": "2026-10-11T00:14:02.083419",
+    "signature": "hMuSQnkEqw3iXiBcQ9/DnmHTotFTIPhab+gOEhfQJ1f17iHmofKnCL8aUBKr68MMsuzx1DNrYbme6m3P/eXecwmUnu1mnvsnQCIN/2vgnXRxPBJh2nUiOwmzuZAiOrjaU2krJyS+N4nfhPDEg6L5PK/6l/HyMglxpOzT3O4U0M/14T8T/SddVJv6DD4BPHsBfdHwNUl8QA0RXfBMCwhJg5YcQbYUbrVsG1BCLQhsdowcU0n3choY2nvRqXrnXiFanu+4Fc1DqgGef7NOw0TBW66//hGmQF9ETtinb6e8piR4SFNaUy9a+rhSX9FR7WRxHnmiwN4tk+9WWkUrQo1PqA=="
+}

@@ -58,12 +58,11 @@ from telemetry_attestation import generate_telemetry_attestation
 # License enforcement
 # -----------------------
 from license_enforcer import (
-   
     get_license,
     validate_domain,
-    check_feature_access
+    check_feature_access,
+    tier_features
 )
-
 # -----------------------
 # FastAPI app initialization
 # -----------------------
@@ -128,7 +127,7 @@ def monitor(client_id: str = Query(...), domain: str = Query(...)):
 
     # 3️⃣ Prepare results dict
     results = {"domain": domain, "timestamp": datetime.utcnow().isoformat()}
-    features = license_data["features"]
+    features = tier_features(license_data["tier"])
 
 
 
