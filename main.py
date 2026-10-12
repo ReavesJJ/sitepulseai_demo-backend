@@ -23,7 +23,12 @@ import requests
 # -----------------------
 # Existing monitoring engine
 # -----------------------
-from monitoring_engine import add_domain_to_monitoring, run_full_check
+from monitoring_engine import (
+    add_domain_to_monitoring,
+    run_full_check,
+    start_monitoring
+)
+
 
 # -----------------------
 # Routers for each card
@@ -354,7 +359,7 @@ def monitoring_loop():
 
 
 # Start background loop in daemon thread
-threading.Thread(target=monitoring_loop, daemon=True).start()
+# threading.Thread(target=monitoring_loop, daemon=True).start()
 
 
 # ============================================================
@@ -687,6 +692,13 @@ async def startup_event():
     os.makedirs("licenses", exist_ok=True)
     os.makedirs(TELEMETRY_DIR, exist_ok=True)
 
+
+    start_monitoring()
+
+
 @app.on_event("shutdown")
 async def shutdown_event():
     print("🛑 SitePulseAI Backend shutting down.")
+
+
+    
