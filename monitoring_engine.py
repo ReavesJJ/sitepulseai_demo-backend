@@ -5,10 +5,7 @@
 
 import time
 import threading
-
 from monitor import run_full_check
-from site_manager import get_all_sites
-
 from telemetry_event_store import create_telemetry_event
 from license_enforcer import get_license, validate_domain
 
@@ -144,22 +141,23 @@ def start_monitoring(
     client_id=DEFAULT_CLIENT_ID
 ):
     """
-    Start autonomous monitoring for all currently configured
-    sites that are authorized by the supplied client license.
+    Start autonomous monitoring for all domains authorized
+    by the supplied client license.
     """
 
     print("🚀 Monitoring Engine: ACTIVE")
 
-    # Confirm that the client license exists before starting
-    # autonomous domain threads.
-    get_license(client_id)
+    # Load and fully validate the client license.
+    license_data = get_license(client_id)
 
-    sites = get_all_sites()
+    # The signed license is the authoritative source
+    # for domains this monitoring engine may monitor.
+    sites = license_data.get("domains", [])
 
     if not sites:
         print(
             "[Monitoring Engine] "
-            "No configured sites found."
+            "No licensed domains found."
         )
         return
 
@@ -182,8 +180,6 @@ def start_monitoring(
             domain=site,
             client_id=client_id
         )
-
-
 # ============================================================
 # Start Individual Domain Thread
 # ============================================================
