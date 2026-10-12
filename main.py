@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from telemetry_attestation import generate_telemetry_attestation
+from telemetry_event_store import create_telemetry_event
 import requests
 
 
@@ -182,94 +183,42 @@ def monitor(
         "tier": license_data["tier"]
     })
 
-    # --------------------------------------------------------
+        # --------------------------------------------------------
     # 5. TELEMETRY EVENT
+    #
+    # Shared telemetry evidence layer.
+    # Used by both manual and autonomous monitoring.
     # --------------------------------------------------------
 
     try:
-        if os.path.exists(TELEMETRY_FILE):
-
-            with open(
-                TELEMETRY_FILE,
-                "r",
-                encoding="utf-8"
-            ) as f:
-                telemetry_events = json.load(f)
-
-        else:
-            telemetry_events = []
-
-        if not isinstance(telemetry_events, list):
-            telemetry_events = []
-
-        if telemetry_events:
-            previous_hash = telemetry_events[-1].get(
-                "event_hash",
-                "GENESIS"
-            )
-        else:
-            previous_hash = "GENESIS"
-
-        event_record = {
-            "event_type": "monitoring_event",
-            "event_id": (
-                f"SP-{os.urandom(4).hex().upper()}"
-            ),
-            "timestamp": datetime.utcnow().isoformat(),
-            "client_id": client_id,
-            "domain": domain,
-            "monitoring_agent":
-                "SitePulseAI Monitoring Engine",
-            "previous_event_hash": previous_hash,
-            "results_snapshot": results
-        }
-
-        import hashlib
-
-        event_string = json.dumps(
-            event_record,
-            sort_keys=True,
-            default=str
+        event_record = create_telemetry_event(
+            client_id=client_id,
+            domain=domain,
+            results=results
         )
 
-        event_hash = hashlib.sha256(
-            event_string.encode()
-        ).hexdigest()
-
-        event_record["event_hash"] = event_hash
-
-        telemetry_events.append(event_record)
-
-        with open(
-            TELEMETRY_FILE,
-            "w",
-            encoding="utf-8"
-        ) as f:
-
-            json.dump(
-                telemetry_events,
-                f,
-                indent=2,
-                default=str
-            )
-
+        # Return only the telemetry event metadata here.
+        #
+        # Do NOT attach the full event_record to results because
+        # event_record contains results_snapshot -> results.
+        # Attaching the full record would create a circular
+        # reference during certificate generation.
         results["telemetry_event_record"] = {
-    "event_type": event_record["event_type"],
-    "event_id": event_record["event_id"],
-    "timestamp": event_record["timestamp"],
-    "client_id": event_record["client_id"],
-    "domain": event_record["domain"],
-    "monitoring_agent": event_record["monitoring_agent"],
-    "previous_event_hash": event_record["previous_event_hash"],
-    "event_hash": event_record["event_hash"]
-}
+            "event_type": event_record["event_type"],
+            "event_id": event_record["event_id"],
+            "timestamp": event_record["timestamp"],
+            "client_id": event_record["client_id"],
+            "domain": event_record["domain"],
+            "monitoring_agent": event_record["monitoring_agent"],
+            "previous_event_hash": event_record["previous_event_hash"],
+            "event_hash": event_record["event_hash"]
+        }
 
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Telemetry Event failed: {e}"
         )
-
     # --------------------------------------------------------
     # 6. TELEMETRY ATTESTATION
     # --------------------------------------------------------
