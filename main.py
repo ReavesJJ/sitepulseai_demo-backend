@@ -253,7 +253,16 @@ def monitor(
                 default=str
             )
 
-        results["telemetry_event_record"] = event_record
+        results["telemetry_event_record"] = {
+    "event_type": event_record["event_type"],
+    "event_id": event_record["event_id"],
+    "timestamp": event_record["timestamp"],
+    "client_id": event_record["client_id"],
+    "domain": event_record["domain"],
+    "monitoring_agent": event_record["monitoring_agent"],
+    "previous_event_hash": event_record["previous_event_hash"],
+    "event_hash": event_record["event_hash"]
+}
 
     except Exception as e:
         raise HTTPException(
