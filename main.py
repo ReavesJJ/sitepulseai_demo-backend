@@ -687,7 +687,6 @@ def generate_telemetry_certificate(payload: dict):
     # ---------------------------------------
     # GENERATE TELEMETRY ATTESTATION
     # ---------------------------------------
-
     try:
         certificate = generate_telemetry_attestation(
             client_id=client_id,
@@ -702,6 +701,12 @@ def generate_telemetry_certificate(payload: dict):
         )
 
     # ---------------------------------------
+    # HUMAN-READABLE CERTIFICATE ID
+    # ---------------------------------------
+
+    certificate_id = f"SPTC-{certificate[:12].upper()}"
+
+    # ---------------------------------------
     # RETURN TO CONSOLE
     # ---------------------------------------
 
@@ -709,6 +714,7 @@ def generate_telemetry_certificate(payload: dict):
         "status": "success",
         "domain": domain,
         "client_id": client_id,
+        "certificate_id": certificate_id,
         "certificate": certificate,
         "telemetry_event_id": latest_event.get("event_id"),
         "telemetry_event_hash": latest_event.get("event_hash"),
