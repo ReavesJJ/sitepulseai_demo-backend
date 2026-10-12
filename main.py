@@ -693,9 +693,6 @@ async def startup_event():
     os.makedirs(TELEMETRY_DIR, exist_ok=True)
 
 
-    start_monitoring()
-
-
 @app.on_event("shutdown")
 async def shutdown_event():
     print("🛑 SitePulseAI Backend shutting down.")
