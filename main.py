@@ -22,8 +22,7 @@ import requests
 # -----------------------
 # Existing monitoring engine
 # -----------------------
-from monitoring_engine import add_domain_to_monitoring
-
+from monitoring_engine import add_domain_to_monitoring, run_full_check
 
 # -----------------------
 # Routers for each card
@@ -117,51 +116,65 @@ os.makedirs(TELEMETRY_DIR, exist_ok=True)
 # Existing /monitor endpoint
 # ============================================================
 @app.post("/monitor")
-def monitor(client_id: str = Query(...), domain: str = Query(...)):
+def monitor(
+    client_id: str = Query(...),
+    domain: str = Query(...)
+):
+    # --------------------------------------------------------
+    # 1. LICENSE + DOMAIN ENFORCEMENT
+    # --------------------------------------------------------
 
-    # 1️⃣ Validate license
     license_data = get_license(client_id)
-
-    # 2️⃣ Domain enforcement
     validate_domain(client_id, domain)
 
-    # 3️⃣ Prepare results dict
-    results = {"domain": domain, "timestamp": datetime.utcnow().isoformat()}
     features = tier_features(license_data["tier"])
 
+    for feature in features:
+        check_feature_access(client_id, feature)
 
+    # --------------------------------------------------------
+    # 2. RUN EXISTING MONITORING ENGINE
+    #
+    # Do NOT call ssl_router.check_ssl(), etc.
+    # Those variables are FastAPI APIRouter objects.
+    # --------------------------------------------------------
 
-    # -----------------------
-    # Tier / feature enforcement
-    # -----------------------
-    if "ssl" in features:
-        check_feature_access(client_id, "ssl")
-        results["ssl"] = ssl_router.check_ssl(domain)
+    try:
+        monitoring_results = run_full_check(domain)
 
-    if "uptime" in features:
-        check_feature_access(client_id, "uptime")
-        results["uptime"] = uptime_router.check_uptime(domain)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Monitoring failed: {e}"
+        )
 
-    if "seo" in features:
-        check_feature_access(client_id, "seo")
-        results["seo"] = seo_router.check_seo(domain)
+    if not monitoring_results:
+        raise HTTPException(
+            status_code=500,
+            detail="Monitoring returned no results."
+        )
 
-    if "latency" in features:
-        check_feature_access(client_id, "latency")
-        results["latency"] = latency_router.check_latency(domain)
+    # --------------------------------------------------------
+    # 3. BUILD MONITORING RESULT
+    # --------------------------------------------------------
 
-    if "traffic" in features:
-        check_feature_access(client_id, "traffic")
-        results["traffic"] = traffic_router.check_traffic(domain)
+    results = {
+        "domain": domain,
+        "timestamp": datetime.utcnow().isoformat(),
+        "monitoring": monitoring_results
+    }
 
-    if "vulnerabilities" in features:
-        check_feature_access(client_id, "vulnerabilities")
-        results["vulnerabilities"] = vulnerabilities_router.check_vulnerabilities(domain)
+    # Preserve individual metrics at the top level when
+    # run_full_check returns those keys.
+    if isinstance(monitoring_results, dict):
+        for feature in features:
+            if feature in monitoring_results:
+                results[feature] = monitoring_results[feature]
 
+    # --------------------------------------------------------
+    # 4. IMMUTABLE AUDIT LOG
+    # --------------------------------------------------------
 
-    # -----------------------
-    # Immutable audit log
-    # -----------------------
     write_audit_log({
         "event": "monitor_run",
         "client_id": client_id,
@@ -169,56 +182,105 @@ def monitor(client_id: str = Query(...), domain: str = Query(...)):
         "tier": license_data["tier"]
     })
 
+    # --------------------------------------------------------
+    # 5. TELEMETRY EVENT
+    # --------------------------------------------------------
 
-
-    # -----------------------
-    # Telemetry Event Record
-    # -----------------------
     try:
         if os.path.exists(TELEMETRY_FILE):
-            with open(TELEMETRY_FILE, "r") as f:
+
+            with open(
+                TELEMETRY_FILE,
+                "r",
+                encoding="utf-8"
+            ) as f:
                 telemetry_events = json.load(f)
+
         else:
             telemetry_events = []
 
-        previous_hash = telemetry_events[-1]["event_hash"] if telemetry_events else "GENESIS"
+        if not isinstance(telemetry_events, list):
+            telemetry_events = []
+
+        if telemetry_events:
+            previous_hash = telemetry_events[-1].get(
+                "event_hash",
+                "GENESIS"
+            )
+        else:
+            previous_hash = "GENESIS"
 
         event_record = {
             "event_type": "monitoring_event",
-            "event_id": f"SP-{os.urandom(4).hex().upper()}",
+            "event_id": (
+                f"SP-{os.urandom(4).hex().upper()}"
+            ),
             "timestamp": datetime.utcnow().isoformat(),
             "client_id": client_id,
             "domain": domain,
-            "monitoring_agent": "SitePulseAI Node",
+            "monitoring_agent":
+                "SitePulseAI Monitoring Engine",
             "previous_event_hash": previous_hash,
             "results_snapshot": results
         }
 
         import hashlib
-        event_string = json.dumps(event_record, sort_keys=True, default=str)
-        event_hash = hashlib.sha256(event_string.encode()).hexdigest()
+
+        event_string = json.dumps(
+            event_record,
+            sort_keys=True,
+            default=str
+        )
+
+        event_hash = hashlib.sha256(
+            event_string.encode()
+        ).hexdigest()
+
         event_record["event_hash"] = event_hash
 
         telemetry_events.append(event_record)
-        with open(TELEMETRY_FILE, "w") as f:
-            json.dump(telemetry_events, f, indent=2, default=str)
+
+        with open(
+            TELEMETRY_FILE,
+            "w",
+            encoding="utf-8"
+        ) as f:
+
+            json.dump(
+                telemetry_events,
+                f,
+                indent=2,
+                default=str
+            )
 
         results["telemetry_event_record"] = event_record
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Telemetry Event failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Telemetry Event failed: {e}"
+        )
 
+    # --------------------------------------------------------
+    # 6. TELEMETRY ATTESTATION
+    # --------------------------------------------------------
 
+    try:
+        certificate = generate_telemetry_attestation(
+            client_id,
+            domain,
+            results
+        )
 
-    # -----------------------
-    # Telemetry attestation certificate
-    # -----------------------
-    certificate = generate_telemetry_attestation(client_id, domain, results)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Telemetry certificate failed: {e}"
+        )
+
     results["telemetry_certificate"] = certificate
 
     return results
-
-
 
 # -----------------------
 # Endpoint to get latest telemetry event
@@ -509,12 +571,21 @@ def check_vulnerabilities(domain: str):
         "ssl_status": ssl_info["ssl_status"]
     }
 
-
-
 @app.post("/generate_telemetry_certificate")
 def generate_telemetry_certificate(payload: dict):
 
     domain = payload.get("domain")
+
+    # Temporary default for current SitePulseAI deployment.
+    # Later this should come from authenticated client context.
+    client_id = payload.get(
+        "client_id",
+        "SPA-TIER_1-5CF062E6"
+    )
+
+    # ---------------------------------------
+    # VALIDATE REQUEST
+    # ---------------------------------------
 
     if not domain:
         raise HTTPException(
@@ -522,11 +593,9 @@ def generate_telemetry_certificate(payload: dict):
             detail="Domain is required."
         )
 
-    # ---------------------------------------
-    # CLIENT ID
-    # ---------------------------------------
-
-    client_id = "SPA-TIER_1-C4AFDB5C"
+    # Verify license and licensed domain
+    get_license(client_id)
+    validate_domain(client_id, domain)
 
     # ---------------------------------------
     # LOAD EXISTING TELEMETRY
@@ -538,20 +607,64 @@ def generate_telemetry_certificate(payload: dict):
             detail="No telemetry events found."
         )
 
-    with open(TELEMETRY_FILE, "r") as f:
-        telemetry_events = json.load(f)
+    try:
+        with open(
+            TELEMETRY_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+            telemetry_events = json.load(f)
 
-    if not telemetry_events:
+    except (OSError, json.JSONDecodeError) as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to read telemetry events: {e}"
+        )
+
+    if not isinstance(telemetry_events, list) or not telemetry_events:
         raise HTTPException(
             status_code=404,
             detail="No telemetry events available."
         )
 
     # ---------------------------------------
-    # GET LATEST TELEMETRY EVENT
+    # FIND LATEST EVENT FOR THIS
+    # CLIENT + DOMAIN
     # ---------------------------------------
 
-    latest_event = telemetry_events[-1]
+    requested_domain = (
+        domain
+        .lower()
+        .replace("www.", "")
+        .strip()
+    )
+
+    latest_event = None
+
+    for event in reversed(telemetry_events):
+
+        event_domain = (
+            str(event.get("domain", ""))
+            .lower()
+            .replace("www.", "")
+            .strip()
+        )
+
+        if (
+            event.get("client_id") == client_id
+            and event_domain == requested_domain
+        ):
+            latest_event = event
+            break
+
+    if latest_event is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "No telemetry event found "
+                "for this licensed domain."
+            )
+        )
 
     # ---------------------------------------
     # BUILD CERTIFICATE RESULTS
@@ -563,14 +676,21 @@ def generate_telemetry_certificate(payload: dict):
     }
 
     # ---------------------------------------
-    # GENERATE CRYPTOGRAPHIC ATTESTATION
+    # GENERATE TELEMETRY ATTESTATION
     # ---------------------------------------
 
-    certificate = generate_telemetry_attestation(
-        client_id=client_id,
-        domain=domain,
-        results=results
-    )
+    try:
+        certificate = generate_telemetry_attestation(
+            client_id=client_id,
+            domain=domain,
+            results=results
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Certificate generation failed: {e}"
+        )
 
     # ---------------------------------------
     # RETURN TO CONSOLE
@@ -581,9 +701,10 @@ def generate_telemetry_certificate(payload: dict):
         "domain": domain,
         "client_id": client_id,
         "certificate": certificate,
+        "telemetry_event_id": latest_event.get("event_id"),
+        "telemetry_event_hash": latest_event.get("event_hash"),
         "timestamp": datetime.utcnow().isoformat()
     }
-
 
 # ============================================================
 # FASTAPI STARTUP / SHUTDOWN
